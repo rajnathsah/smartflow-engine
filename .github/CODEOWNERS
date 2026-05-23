@@ -1,1 +1,27 @@
-# Code ownership rules for SmartFlow Engine\n# These rules define who must review and approve changes before merging\n\n# Global code owner - rajnathsah must approve all changes\n* @rajnathsah\n\n# Frontend specific ownership\nfrontend/ @rajnathsah\n\n# Backend specific ownership\nbackend/ @rajnathsah\n\n# Docker and DevOps ownership\ndocker/ @rajnathsah\nDockerfile* @rajnathsah\n\n# Tests ownership\ntests/ @rajnathsah\n\n# Documentation ownership\ndocs/ @rajnathsah\nREADME.md @rajnathsah\n\n# Configuration files\n.env.example @rajnathsah\n.gitignore @rajnathsah\n.dockerignore @rajnathsah\n"
+# Code ownership rules for SmartFlow Engine
+# These rules define who must review and approve changes before merging
+
+# Global code owner - rajnathsah must approve all changes
+* @rajnathsah
+
+# Frontend specific ownership
+frontend/ @rajnathsah
+
+# Backend specific ownership
+backend/ @rajnathsah
+
+# Docker and DevOps ownership
+docker/ @rajnathsah
+Dockerfile* @rajnathsah
+
+# Tests ownership
+tests/ @rajnathsah
+
+# Documentation ownership
+docs/ @rajnathsah
+README.md @rajnathsah
+
+# Configuration files
+.env.example @rajnathsah
+.gitignore @rajnathsah
+.dockerignore @rajnathsah
