@@ -8,7 +8,7 @@ from sqlalchemy import BOOLEAN, DATETIME, FLOAT, INTEGER, TEXT, Column, MetaData
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
 
-from backend.database.factory import get_async_engine
+from backend.database.factory import get_async_engine, ensure_database_exists
 from backend.utils.logging import logger
 from backend.utils.tunneling import ssh_tunnel_context
 from backend.workers.celery_app import app as celery_app
@@ -407,6 +407,7 @@ async def _run_with_engine(
     engine: AsyncEngine | None = None
 
     try:
+        await ensure_database_exists(target_config, override_port=override_port)
         engine = get_async_engine(target_config, override_port=override_port)
         logger.info(
             "Initialized target async engine",

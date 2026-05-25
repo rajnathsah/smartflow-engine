@@ -3,6 +3,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Plus, Check, ShieldAlert } from 'lucide-react'
+import { useAuthStore } from '@/store/authStore'
 
 // Define validation schema
 const roleSchema = z.object({
@@ -25,6 +26,7 @@ interface PermissionGroup {
 }
 
 export const RoleBuilder: React.FC = () => {
+  const { activeTenant } = useAuthStore()
   const [successPayload, setSuccessPayload] = useState<string | null>(null)
 
   // Granular Permission Matrix data grouped logically
@@ -85,9 +87,10 @@ export const RoleBuilder: React.FC = () => {
 
   const onRoleSubmit = (data: RoleFormData) => {
     const payload = JSON.stringify(data, null, 2)
-    const storedRoles = JSON.parse(localStorage.getItem('synq-custom-roles') || '[]')
+    const storageKey = activeTenant ? `synq-custom-roles-${activeTenant}` : 'synq-custom-roles'
+    const storedRoles = JSON.parse(localStorage.getItem(storageKey) || '[]')
     const nextRoles = storedRoles.filter((role: RoleFormData) => role.roleName !== data.roleName)
-    localStorage.setItem('synq-custom-roles', JSON.stringify([...nextRoles, data]))
+    localStorage.setItem(storageKey, JSON.stringify([...nextRoles, data]))
     console.log('Provisioned Role Details:', data)
     setSuccessPayload(payload)
     

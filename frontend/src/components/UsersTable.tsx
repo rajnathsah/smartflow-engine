@@ -14,9 +14,10 @@ interface UserRecord {
 }
 
 export const UsersTable: React.FC = () => {
-  const { token, role } = useAuthStore()
+  const { token, role, activeTenant } = useAuthStore()
   const isAdmin = role === 'Tenant_Admin' || role === 'Super_Admin'
-  const customRoles = JSON.parse(localStorage.getItem('synq-custom-roles') || '[]')
+  const storageKey = activeTenant ? `synq-custom-roles-${activeTenant}` : 'synq-custom-roles'
+  const customRoles = JSON.parse(localStorage.getItem(storageKey) || '[]')
 
   const [isAddOpen, setIsAddOpen] = useState(false)
   const [nameInput, setNameInput] = useState('')
