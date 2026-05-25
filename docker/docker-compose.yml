@@ -1,35 +1,70 @@
 version: '3.8'
 
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: synq_redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+  mysql:
+    image: mysql:8.0
+    container_name: synq_mysql
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: synq_target_db
+    restart: unless-stopped
+
   backend:
     build:
       context: ..
       dockerfile: docker/Dockerfile.backend
+    container_name: synq_backend
     ports:
-      - "5000:5000"
+      - "8000:8000"
     environment:
-      - FLASK_ENV=development
-      - FLASK_DEBUG=True
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - MASTER_VAULT_KEY=synq-development-secret-vault-key-change-me
+      - JWT_SECRET_KEY=synq-jwt-super-secret-key-change-me
+      - RESEND_API_KEY=${RESEND_API_KEY}
+      - RESEND_FROM_EMAIL=${RESEND_FROM_EMAIL:-synq.to <onboarding@resend.dev>}
+      - APP_LOGIN_URL=${APP_LOGIN_URL:-http://localhost/login}
+    depends_on:
+      - redis
+      - mysql
     volumes:
-      - ../backend:/app
-    container_name: smartflow-backend
-    networks:
-      - smartflow-network
+      - ../backend:/app/backend
+    restart: unless-stopped
+
+  celery_worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    container_name: synq_worker
+    command: celery -A backend.workers.celery_app.app worker --loglevel=INFO
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - MASTER_VAULT_KEY=synq-development-secret-vault-key-change-me
+      - JWT_SECRET_KEY=synq-jwt-super-secret-key-change-me
+    depends_on:
+      - redis
+      - mysql
+    volumes:
+      - ../backend:/app/backend
+    restart: unless-stopped
 
   frontend:
     build:
-      context: ..
-      dockerfile: docker/Dockerfile.frontend
+      context: ../frontend
+      dockerfile: ../docker/Dockerfile.frontend
+    container_name: synq_frontend
     ports:
-      - "3000:3000"
+      - "80:80"
     depends_on:
       - backend
-    container_name: smartflow-frontend
-    networks:
-      - smartflow-network
-    environment:
-      - REACT_APP_API_URL=http://backend:5000
-
-networks:
-  smartflow-network:
-    driver: bridge
+    restart: unless-stopped
