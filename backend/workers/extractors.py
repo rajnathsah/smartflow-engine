@@ -90,12 +90,16 @@ def extract_records_generator(
     auth_type = auth_config.get("authType", "bearer")
     auth_token = auth_config.get("authToken", "")
     headers = get_auth_headers(auth_type, auth_token, custom_headers)
-    
+    logger.info(
+        f"Extractor auth resolved: type={auth_type!r}, token_present={bool(auth_token)}"
+    )
+
     # Set up HTTP connection pool parameters to recycle sockets efficiently
     limits = httpx.Limits(max_keepalive_connections=5, max_connections=10)
-    
-    # Parse pagination strategy settings
-    pag_type = pagination_config.get("type", "page").lower()  # page, offset, cursor
+
+    # Parse pagination strategy — treat missing/empty config as "none" (single fetch)
+    raw_pag_type = str(pagination_config.get("type") or "").strip().lower()
+    pag_type = raw_pag_type if raw_pag_type in ("page", "offset", "cursor") else "none"
     limit = int(pagination_config.get("limit", 100))
     limit_param = pagination_config.get("limit_param", "limit")
     offset_param = pagination_config.get("offset_param", "offset")
@@ -112,8 +116,8 @@ def extract_records_generator(
         while True:
             params = {}
             url = endpoint_url
-            
-            # Dynamically compile pagination arguments
+
+            # Dynamically compile pagination arguments — skip entirely for "none"
             if pag_type == "page":
                 params[page_param] = page
                 params[limit_param] = limit
@@ -124,15 +128,24 @@ def extract_records_generator(
                 url = next_url
                 if not url:
                     break
-            
+            # pag_type == "none": no params appended, single clean request
+
             retries = 3
             backoff = 2.0
             response = None
-            
+
             while retries > 0:
                 try:
                     response = client.get(url, headers=headers, params=params)
-                    
+
+                    # Fail fast on auth errors — no point retrying with same bad creds
+                    if response.status_code in (401, 403):
+                        raise ConnectionError(
+                            f"HTTP {response.status_code} {'Unauthorized' if response.status_code == 401 else 'Forbidden'} "
+                            f"for url '{url}'. Check that authType and authToken are correct. "
+                            f"Response: {response.text[:300]}"
+                        )
+
                     # Handle rate limiting specifically
                     if response.status_code == 429:
                         retry_after = response.headers.get("Retry-After")
@@ -142,15 +155,17 @@ def extract_records_generator(
                         retries -= 1
                         backoff *= 2
                         continue
-                        
+
                     # Handle pagination boundary (HTTP 404)
                     if response.status_code == 404 and has_fetched:
                         logger.info("Received HTTP 404 on pagination boundary. Concluding extraction stream.")
                         response = None
                         break
-                        
+
                     response.raise_for_status()
                     break
+                except ConnectionError:
+                    raise  # Re-raise auth/forbidden errors immediately without retry
                 except httpx.HTTPError as e:
                     retries -= 1
                     if retries == 0:
@@ -200,7 +215,11 @@ def extract_records_generator(
                 
             yield records
             has_fetched = True
-            
+
+            # For "none" pagination — single fetch only, stop after first page
+            if pag_type == "none":
+                break
+
             if len(records) < limit:
                 break
             

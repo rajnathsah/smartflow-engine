@@ -95,7 +95,17 @@ def _normalize_pipeline_config(
     source_config["customHeaders"] = _headers_to_dict(
         source_config.get("customHeaders", pipeline_config.get("sourceHeaders", {}))
     )
-    source_config["pagination"] = source_config.get("pagination") or pipeline_config.get("pagination", {})
+
+    # Resolve pagination — frontend sends `paginationStrategy` ("none"/"page"/"cursor")
+    # while the extractor reads `pagination.type`
+    existing_pagination = source_config.get("pagination") or pipeline_config.get("pagination") or {}
+    if not existing_pagination.get("type"):
+        frontend_strat = str(pipeline_config.get("paginationStrategy") or "").strip().lower()
+        if frontend_strat in ("page", "offset", "cursor"):
+            existing_pagination = {**existing_pagination, "type": frontend_strat}
+        # else leave empty → extractor will treat as "none"
+    source_config["pagination"] = existing_pagination
+
     source_config["dataPath"] = (
         source_config.get("dataPath")
         or source_config.get("data_path")
@@ -404,11 +414,90 @@ async def _run_with_engine(
     records_generator: Iterable[List[Dict[str, Any]]],
     override_port: int | None = None,
 ) -> int:
+    import os
+    import urllib.parse
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from backend.database.factory import get_decrypted_password
+
     engine: AsyncEngine | None = None
 
+    target_db = str(target_config.get("targetDb", "postgresql")).lower()
+    username = target_config.get("username", "")
+    password = target_config.get("password", "")
+    host = target_config.get("host", "127.0.0.1")
+    port = target_config.get("port")
+    database = target_config.get("database", "")
+
+    password_decrypted = get_decrypted_password(password)
+
+    if host.strip().lower() in ("localhost", "127.0.0.1", "::1"):
+        if target_db == "mysql":
+            host = os.getenv("MYSQL_DOCKER_HOST", "mysql")
+        elif target_db in ("postgresql", "postgres"):
+            host = os.getenv("POSTGRES_DOCKER_HOST", "postgres")
+
+    if host == "mysql":
+        port = 3306
+    elif host == "postgres":
+        port = 5432
+
+    if override_port is not None:
+        host = "127.0.0.1"
+        port = override_port
+
+    escaped_user = urllib.parse.quote_plus(username)
+    escaped_password = urllib.parse.quote_plus(password_decrypted)
+
+    if target_db in ("postgresql", "postgres"):
+        dialect = "postgresql+asyncpg"
+        default_db = "postgres"
+    elif target_db == "mysql":
+        dialect = "mysql+asyncmy"
+        default_db = "mysql"
+    else:
+        dialect = None
+        default_db = None
+
     try:
-        await ensure_database_exists(target_config, override_port=override_port)
-        engine = get_async_engine(target_config, override_port=override_port)
+        if dialect and default_db and database:
+            temp_uri = f"{dialect}://{escaped_user}:{escaped_password}@{host}:{port}/{default_db}"
+            temp_engine = create_async_engine(temp_uri, pool_pre_ping=True).execution_options(isolation_level="AUTOCOMMIT")
+            try:
+                async with temp_engine.connect() as conn:
+                    if target_db == "mysql":
+                        safe_db_name = database.replace('`', '``')
+                        await conn.execute(text(f"CREATE DATABASE IF NOT EXISTS `{safe_db_name}`"))
+                    else:
+                        result = await conn.execute(
+                            text("SELECT 1 FROM pg_database WHERE datname = :dbname"),
+                            {"dbname": database}
+                        )
+                        exists = result.scalar() is not None
+                        if not exists:
+                            safe_db_name = database.replace('"', '""')
+                            await conn.execute(text(f'CREATE DATABASE "{safe_db_name}"'))
+            except Exception as e:
+                logger.error("Error creating target database", database=database, error=str(e))
+            finally:
+                await temp_engine.dispose()
+
+        if target_db in ("snowflake", "bigquery"):
+            db_file = "synq_snowflake.db" if target_db == "snowflake" else "synq_bigquery.db"
+            connection_uri = f"sqlite+aiosqlite:///backend/{db_file}"
+        elif dialect:
+            connection_uri = f"{dialect}://{escaped_user}:{escaped_password}@{host}:{port}/{database}"
+        else:
+            raise ValueError(f"Unsupported database target engine selection: {target_db}")
+
+        engine = create_async_engine(
+            connection_uri,
+            pool_size=20,
+            max_overflow=10,
+            pool_timeout=30,
+            pool_pre_ping=True
+        )
+
         logger.info(
             "Initialized target async engine",
             driver=engine.url.drivername,
@@ -417,18 +506,21 @@ async def _run_with_engine(
             target_port=engine.url.port,
             table_name=table_name,
         )
+
         return await load_records_chunked(engine, table_name, schema_mapping, records_generator)
+
     except Exception as exc:
         logger.error(
             "Target engine initialization or execution failed",
             error=str(exc),
             traceback=traceback.format_exc(),
-            target_database=target_config.get("database"),
-            target_host="127.0.0.1" if override_port is not None else target_config.get("host"),
-            target_port=override_port or target_config.get("port"),
+            target_database=database,
+            target_host=host,
+            target_port=port,
             table_name=table_name,
         )
         raise
+
     finally:
         if engine is not None:
             await engine.dispose()

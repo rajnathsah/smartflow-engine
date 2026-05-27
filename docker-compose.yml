@@ -1,11 +1,14 @@
-version: '3.8'
-
 services:
   redis:
     image: redis:7-alpine
     container_name: synq_redis
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
     restart: unless-stopped
     networks:
       - app-network
@@ -14,10 +17,18 @@ services:
     image: mysql:8.0
     container_name: synq_mysql
     ports:
-      - "3306:3306"
+      - "3307:3306"
     environment:
       MYSQL_ROOT_PASSWORD: rootpassword
       MYSQL_DATABASE: synq_target_db
+      MYSQL_ROOT_HOST: "%"
+    volumes:
+      - ./docker/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-prootpassword"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     restart: unless-stopped
     networks:
       - app-network
@@ -34,12 +45,17 @@ services:
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
       - MASTER_VAULT_KEY=synq-development-secret-vault-key-change-me
       - JWT_SECRET_KEY=synq-jwt-super-secret-key-change-me
-      - RESEND_API_KEY=${RESEND_API_KEY}
+      - RESEND_API_KEY=${RESEND_API_KEY:-}
       - RESEND_FROM_EMAIL=${RESEND_FROM_EMAIL:-synq.to <onboarding@resend.dev>}
       - APP_LOGIN_URL=${APP_LOGIN_URL:-http://localhost:5173/login}
+      - MYSQL_DOCKER_HOST=mysql
+      - POSTGRES_DOCKER_HOST=postgres
+      - DATABASE_URL=mysql+asyncmy://synq_user:password@mysql:3306/synq_target_db
     depends_on:
-      - redis
-      - mysql
+      redis:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
     volumes:
       - ./backend:/app/backend
     restart: unless-stopped
@@ -57,9 +73,14 @@ services:
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
       - MASTER_VAULT_KEY=synq-development-secret-vault-key-change-me
       - JWT_SECRET_KEY=synq-jwt-super-secret-key-change-me
+      - MYSQL_DOCKER_HOST=mysql
+      - POSTGRES_DOCKER_HOST=postgres
+      - DATABASE_URL=mysql+asyncmy://synq_user:password@mysql:3306/synq_target_db
     depends_on:
-      - redis
-      - mysql
+      redis:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
     volumes:
       - ./backend:/app/backend
     restart: unless-stopped

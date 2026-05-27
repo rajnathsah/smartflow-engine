@@ -1,6 +1,7 @@
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from typing import Optional, List
 import os
 import json
 import shutil

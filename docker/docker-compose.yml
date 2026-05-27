@@ -12,10 +12,13 @@ services:
     image: mysql:8.0
     container_name: synq_mysql
     ports:
-      - "3306:3306"
+      - "3307:3306"
     environment:
       MYSQL_ROOT_PASSWORD: rootpassword
       MYSQL_DATABASE: synq_target_db
+      MYSQL_ROOT_HOST: "%"
+    volumes:
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     restart: unless-stopped
 
   backend:
@@ -33,6 +36,7 @@ services:
       - RESEND_API_KEY=${RESEND_API_KEY}
       - RESEND_FROM_EMAIL=${RESEND_FROM_EMAIL:-synq.to <onboarding@resend.dev>}
       - APP_LOGIN_URL=${APP_LOGIN_URL:-http://localhost/login}
+      - DATABASE_URL=mysql+asyncmy://synq_user:password@mysql:3306/synq_target_db
     depends_on:
       - redis
       - mysql
@@ -51,6 +55,7 @@ services:
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
       - MASTER_VAULT_KEY=synq-development-secret-vault-key-change-me
       - JWT_SECRET_KEY=synq-jwt-super-secret-key-change-me
+      - DATABASE_URL=mysql+asyncmy://synq_user:password@mysql:3306/synq_target_db
     depends_on:
       - redis
       - mysql
