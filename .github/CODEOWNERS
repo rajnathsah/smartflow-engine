@@ -5,21 +5,21 @@
 * @rajnathsah
 
 # Frontend specific ownership
-frontend/ @rajnathsah
+frontend/ @rajnathsah @aditya25shah
 
 # Backend specific ownership
-backend/ @rajnathsah
+backend/ @rajnathsah @aditya25shah
 
 # Docker and DevOps ownership
-docker/ @rajnathsah
-Dockerfile* @rajnathsah
+docker/ @rajnathsah @aditya25shah
+Dockerfile* @rajnathsah @aditya25shah
 
 # Tests ownership
 tests/ @rajnathsah
 
 # Documentation ownership
-docs/ @rajnathsah
-README.md @rajnathsah
+docs/ @rajnathsah 
+README.md @rajnathsah @aditya25shah
 
 # Configuration files
 .env.example @rajnathsah

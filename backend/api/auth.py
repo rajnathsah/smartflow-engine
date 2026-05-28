@@ -1,6 +1,6 @@
 import os
 import uuid
-import sqlite3
+from backend.database import get_pg_connection
 import secrets
 import string
 import httpx
@@ -26,26 +26,26 @@ INVITE_DENIED_MESSAGE = "Access Denied: You have not been invited to this worksp
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 security_bearer = HTTPBearer()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "synq_auth.db")
 
 
 def get_conn():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    return get_pg_connection()
 
 
 def ensure_columns(cursor, table: str, columns: dict[str, str]):
-    cursor.execute(f"PRAGMA table_info({table})")
-    existing = {row["name"] for row in cursor.fetchall()}
+    existing = table_columns(cursor, table)
     for name, ddl in columns.items():
         if name not in existing:
             cursor.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
 
 
 def table_columns(cursor, table: str) -> set[str]:
-    cursor.execute(f"PRAGMA table_info({table})")
-    return {row["name"] for row in cursor.fetchall()}
+    cursor.execute(
+        "SELECT column_name FROM information_schema.columns WHERE table_name = %s",
+        (table.lower(),)
+    )
+    return {row["column_name"] for row in cursor.fetchall()}
+
 
 
 def insert_tenant(cursor, tenant_id: str, name: str, created_at: str):

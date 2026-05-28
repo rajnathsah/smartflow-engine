@@ -483,8 +483,8 @@ async def _run_with_engine(
                 await temp_engine.dispose()
 
         if target_db in ("snowflake", "bigquery"):
-            db_file = "synq_snowflake.db" if target_db == "snowflake" else "synq_bigquery.db"
-            connection_uri = f"sqlite+aiosqlite:///backend/{db_file}"
+            from backend.config import settings
+            connection_uri = str(settings.SQLALCHEMY_DATABASE_URI).replace("postgresql+psycopg", "postgresql+asyncpg")
         elif dialect:
             connection_uri = f"{dialect}://{escaped_user}:{escaped_password}@{host}:{port}/{database}"
         else:
@@ -739,11 +739,8 @@ def semantic_chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -
 
 
 def get_tenant_db_config(tenant_id: str) -> Dict[str, Any]:
-    import os
-    import sqlite3
-    db_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "synq_auth.db")
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+    from backend.database import get_pg_connection
+    conn = get_pg_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT data FROM destinations WHERE tenant_id = ?", (tenant_id,))
     rows = cursor.fetchall()
@@ -758,37 +755,24 @@ def get_tenant_db_config(tenant_id: str) -> Dict[str, Any]:
 
 async def save_chunks_to_db(tenant_id: str, document_name: str, chunks: List[str], config: Dict[str, Any]) -> None:
     from sqlalchemy import text
-    from backend.database.factory import get_decrypted_password
     engine = get_async_engine(config)
-    is_sqlite = engine.url.drivername.startswith("sqlite")
 
     async with engine.begin() as conn:
-        if is_sqlite:
-            await conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS document_chunks (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    document_name VARCHAR(255),
-                    chunk_index INTEGER,
-                    content TEXT,
-                    embedding TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-            """))
-            for idx, chunk in enumerate(chunks):
-                emb = generate_deterministic_embedding(chunk)
-                await conn.execute(text("""
-                    INSERT INTO document_chunks (document_name, chunk_index, content, embedding)
-                    VALUES (:doc_name, :idx, :content, :emb);
-                """), {
-                    "doc_name": document_name,
-                    "idx": idx,
-                    "content": chunk,
-                    "emb": json.dumps(emb)
-                })
-        else:
-            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
-            safe_schema = f"tenant_{tenant_id.replace('-', '_')}"
-            await conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{safe_schema}";'))
+        has_vector = False
+        target_db = config.get("targetDb", "").lower()
+        is_simulation = target_db in ("snowflake", "bigquery")
+        
+        if not is_simulation:
+            try:
+                await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
+                has_vector = True
+            except Exception:
+                pass
+
+        safe_schema = f"tenant_{tenant_id.replace('-', '_')}"
+        await conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{safe_schema}";'))
+
+        if has_vector:
             await conn.execute(text(f"""
                 CREATE TABLE IF NOT EXISTS "{safe_schema}".document_chunks (
                     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -810,6 +794,28 @@ async def save_chunks_to_db(tenant_id: str, document_name: str, chunks: List[str
                     "idx": idx,
                     "content": chunk,
                     "emb": vec_str
+                })
+        else:
+            await conn.execute(text(f"""
+                CREATE TABLE IF NOT EXISTS "{safe_schema}".document_chunks (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    document_name VARCHAR(255),
+                    chunk_index INTEGER,
+                    content TEXT,
+                    embedding TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """))
+            for idx, chunk in enumerate(chunks):
+                emb = generate_deterministic_embedding(chunk)
+                await conn.execute(text(f"""
+                    INSERT INTO "{safe_schema}".document_chunks (document_name, chunk_index, content, embedding)
+                    VALUES (:doc_name, :idx, :content, :emb);
+                """), {
+                    "doc_name": document_name,
+                    "idx": idx,
+                    "content": chunk,
+                    "emb": json.dumps(emb)
                 })
     await engine.dispose()
 

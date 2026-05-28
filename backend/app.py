@@ -15,7 +15,7 @@ def health_check():
     """Health check endpoint."""
     return jsonify({
         'status': 'healthy',
-        'service': 'SmartFlow Engine API'
+        'service': 'Synq.to API'
     }), 200
 
 
@@ -24,11 +24,11 @@ def api_status():
     """API status endpoint."""
     return jsonify({
         'version': '0.1.0',
-        'name': 'SmartFlow Engine',
+        'name': 'Synq.to',
         'status': 'running'
     }), 200
 
 
 if __name__ == '__main__':
-    logger.info('Starting SmartFlow Engine Backend')
+    logger.info('Starting Synq.to API Backend')
     app.run(host='0.0.0.0', port=5000, debug=True)

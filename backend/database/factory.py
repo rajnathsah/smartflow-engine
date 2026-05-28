@@ -86,14 +86,15 @@ def _resolve_connection_params(db_config: Dict[str, Any], override_port: Optiona
 def get_async_engine(db_config: Dict[str, Any], override_port: Optional[int] = None) -> AsyncEngine:
     target_db = db_config.get("targetDb", "postgresql").lower()
     if target_db in ("snowflake", "bigquery"):
-        db_file = "synq_snowflake.db" if target_db == "snowflake" else "synq_bigquery.db"
+        from backend.config import settings
         logger.info(
             f"Initializing {target_db.capitalize()} Cloud Warehouse sync connector. "
-            "Simulating warehouse pipeline execution via local SQLite database...",
-            host=db_config.get("host", "127.0.0.1"),
-            database=db_config.get("database", "")
+            "Simulating warehouse pipeline execution via PostgreSQL database...",
+            host=settings.POSTGRES_SERVER,
+            database=settings.POSTGRES_DB
         )
-        return create_async_engine(f"sqlite+aiosqlite:///backend/{db_file}")
+        connection_uri = str(settings.SQLALCHEMY_DATABASE_URI).replace("postgresql+psycopg", "postgresql+asyncpg")
+        return create_async_engine(connection_uri)
 
     params = _resolve_connection_params(db_config, override_port)
     target_db = params["target_db"]

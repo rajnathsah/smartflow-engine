@@ -1,6 +1,6 @@
 import json
 import os
-import sqlite3
+from backend.database import get_pg_connection
 import uuid
 from datetime import datetime
 from typing import Any, Dict, List
@@ -14,13 +14,11 @@ from backend.workers.tasks import sync_pipeline_task
 from backend.workers.celery_app import app as celery_app
 
 router = APIRouter()
-DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "synq_auth.db")
 
 
 def get_conn():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    return get_pg_connection()
+
 
 
 def read_tenant_rows(table: str, tenant_id: str) -> List[Dict[str, Any]]:
@@ -58,7 +56,7 @@ def upsert_tenant_row(table: str, tenant_id: str, item: Dict[str, Any]) -> Dict[
     now = datetime.utcnow().isoformat()
     data = {**item, "id": item_id, "tenant_id": tenant_id}
     cursor.execute(
-        f"INSERT INTO {table} (id, tenant_id, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at WHERE tenant_id = ?",
+        f"INSERT INTO {table} (id, tenant_id, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at WHERE {table}.tenant_id = ?",
         (item_id, tenant_id, json.dumps(data), now, now, tenant_id)
     )
     conn.commit()
@@ -318,7 +316,7 @@ async def trigger_pipeline_sync(
     data = {**task_payload, "id": id, "status": "syncing", "taskId": async_result.id, "tenant_id": tenant_id}
     now = datetime.utcnow().isoformat()
     cursor.execute(
-        "INSERT INTO connections (id, tenant_id, data, task_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data, task_id = excluded.task_id, updated_at = excluded.updated_at WHERE tenant_id = ?",
+        "INSERT INTO connections (id, tenant_id, data, task_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data, task_id = excluded.task_id, updated_at = excluded.updated_at WHERE connections.tenant_id = ?",
         (id, tenant_id, json.dumps(data), async_result.id, now, now, tenant_id)
     )
     conn.commit()

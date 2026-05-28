@@ -1,0 +1,1 @@
+﻿API Sync Limits: AeroSync offers unlimited endpoints. CloudFlow limits to 50. Base Pricing: AeroSync flat ,500/month. CloudFlow ,200/month.

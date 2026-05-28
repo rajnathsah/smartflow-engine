@@ -45,35 +45,18 @@ async def retrieve_relevant_chunks(tenant_id: str, query: str, document_ids: Opt
             "username": "root"
         }
     engine = get_async_engine(config)
-    is_sqlite = engine.url.drivername.startswith("sqlite")
     query_vector = generate_deterministic_embedding(query)
     chunks = []
     async with engine.connect() as conn:
-        if is_sqlite:
-            try:
-                result = await conn.execute(text("SELECT document_name, chunk_index, content, embedding FROM document_chunks"))
-                rows = result.fetchall()
-                scored_chunks = []
-                for row in rows:
-                    if document_ids and row[0] not in document_ids:
-                        continue
-                    try:
-                        emb = json.loads(row[3])
-                        dist = compute_cosine_distance(query_vector, emb)
-                        scored_chunks.append({
-                            "content": row[2],
-                            "document_name": row[0],
-                            "chunk_index": row[1],
-                            "distance": dist
-                        })
-                    except Exception:
-                        pass
-                scored_chunks.sort(key=lambda x: x["distance"])
-                chunks = scored_chunks[:5]
-            except Exception:
-                pass
-        else:
-            safe_schema = f"tenant_{tenant_id.replace('-', '_')}"
+        has_vector = False
+        try:
+            result = await conn.execute(text("SELECT 1 FROM pg_type WHERE typname = 'vector'"))
+            has_vector = result.scalar() is not None
+        except Exception:
+            pass
+
+        safe_schema = f"tenant_{tenant_id.replace('-', '_')}"
+        if has_vector:
             vec_str = "[" + ",".join(map(str, query_vector)) + "]"
             try:
                 if document_ids:
@@ -99,6 +82,29 @@ async def retrieve_relevant_chunks(tenant_id: str, query: str, document_ids: Opt
                         "chunk_index": row[2],
                         "distance": float(row[3] or 0.0)
                     })
+            except Exception:
+                pass
+        else:
+            try:
+                result = await conn.execute(text(f'SELECT document_name, chunk_index, content, embedding FROM "{safe_schema}".document_chunks'))
+                rows = result.fetchall()
+                scored_chunks = []
+                for row in rows:
+                    if document_ids and row[0] not in document_ids:
+                        continue
+                    try:
+                        emb = json.loads(row[3])
+                        dist = compute_cosine_distance(query_vector, emb)
+                        scored_chunks.append({
+                            "content": row[2],
+                            "document_name": row[0],
+                            "chunk_index": row[1],
+                            "distance": dist
+                        })
+                    except Exception:
+                        pass
+                scored_chunks.sort(key=lambda x: x["distance"])
+                chunks = scored_chunks[:5]
             except Exception:
                 pass
     await engine.dispose()
