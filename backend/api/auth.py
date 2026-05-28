@@ -387,7 +387,7 @@ async def invite_user(payload: InviteRequest, claims: dict = Depends(get_current
     invite_email = payload.email.strip().lower()
     invite_name = payload.name.strip()
     invite_role = payload.role
-    if not invite_role or len(invite_role) > 64 or not invite_role.replace("_", "").isalnum():
+    if not invite_role or len(invite_role) > 64 or not invite_role.replace("_", "").replace("-", "").replace(" ", "").isalnum():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid workspace role requested.")
     conn = get_conn()
     cursor = conn.cursor()
