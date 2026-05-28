@@ -4,7 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
-import { Lock, Loader2, ShieldAlert, ArrowLeft, Database, Globe, Network, ArrowRight, ShieldCheck, Mail, User } from 'lucide-react'
+import { Lock, Loader2, ShieldAlert, ArrowLeft, Database, Globe, Network, ArrowRight, ShieldCheck, Mail, User, Sun, Moon } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { motion, useMotionValue, useMotionTemplate } from 'framer-motion'
 
@@ -247,7 +247,7 @@ const ConnectorCard: React.FC<ConnectorCardProps> = ({ title, description, icon:
 }
 
 export const Login: React.FC = () => {
-  const { login, isFirstLogin, token, email, activeTenant, role } = useAuthStore()
+  const { login, isFirstLogin, token, email, activeTenant, role, theme, toggleTheme } = useAuthStore()
   const [error, setError] = useState('')
   const [isAuthenticating, setIsAuthenticating] = useState(false)
   const [isTransitioned, setIsTransitioned] = useState(false)
@@ -443,7 +443,14 @@ export const Login: React.FC = () => {
           <a href="#" className="text-xs font-semibold text-zinc-400 hover:text-white uppercase tracking-wider transition-colors">Pricing</a>
         </nav>
 
-        <div>
+        <div className="flex items-center gap-4">
+          <button
+            onClick={toggleTheme}
+            className="p-2 border border-zinc-800 bg-zinc-950 hover:bg-zinc-900 text-zinc-400 hover:text-white rounded-full transition-all cursor-pointer flex items-center justify-center"
+            title={theme === 'light' ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
+          >
+            {theme === 'light' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+          </button>
           <button 
             onClick={() => setIsTransitioned(true)}
             className="px-5 py-2.5 bg-[#FFFFFF] hover:bg-[#000000] hover:text-[#FFFFFF] text-[#000000] border border-[#FFFFFF] text-[10px] font-black uppercase tracking-widest rounded-full transition-all cursor-pointer shadow-[0_0_15px_rgba(255,255,255,0.1)]"
