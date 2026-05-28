@@ -24,7 +24,9 @@ import {
   ChevronLeft,
   Globe,
   Network,
-  BookOpen
+  BookOpen,
+  Sun,
+  Moon
 } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { usePipelineStore } from '@/store/pipelineStore'
@@ -43,7 +45,7 @@ import { RAGPanel } from '@/components/RAGPanel'
 import { Toaster } from 'sonner'
 
 const DashboardLayout = () => {
-  const { activeTenant, logout, token } = useAuthStore()
+  const { activeTenant, logout, token, theme, toggleTheme } = useAuthStore()
   const {
     pipelines,
     sources,
@@ -456,6 +458,13 @@ const DashboardLayout = () => {
             </h1>
           </div>
           <div className="flex items-center gap-4">
+            <button
+              onClick={toggleTheme}
+              className="p-2 border border-border-primary bg-panel hover:bg-text-primary/5 text-text-secondary hover:text-text-primary rounded-lg transition-all cursor-pointer flex items-center justify-center"
+              title={theme === 'light' ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
+            >
+              {theme === 'light' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+            </button>
             <div className="flex items-center gap-1.5 px-2.5 py-1 bg-panel border border-border-primary rounded-full text-[11px] text-text-secondary">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
               <span>Dynamic Dialers Active</span>
