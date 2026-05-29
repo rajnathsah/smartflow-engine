@@ -1,50 +1,71 @@
-import os
+from typing import Any, Dict, Optional
 import urllib.parse
-from typing import Dict, Any, Optional
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine
+from backend.config import settings
 from backend.utils.encryption import decrypt_payload
 from backend.utils.logging import logger
 
-
 _LOCALHOST_ALIASES = {"localhost", "127.0.0.1", "::1"}
 
+class BaseDBConfig(BaseModel):
+    """Base Pydantic model for database connection configurations."""
+    host: str = "127.0.0.1"
+    port: int = 5432
+    database: str
+    username: str
+    password: str
+    target_db: str = Field("postgresql", alias="targetDb")
+
+    model_config = {
+        "populate_by_name": True,
+        "extra": "ignore"
+    }
+
+class PostgreSQLConfig(BaseDBConfig):
+    """PostgreSQL connection configuration."""
+    port: int = 5432
+
+class MySQLConfig(BaseDBConfig):
+    """MySQL connection configuration."""
+    port: int = 3306
 
 def _resolve_host(host: str, target_db: str) -> str:
-    """
-    Remaps localhost/127.0.0.1 to the correct Docker service name when running
-    inside Docker. Controlled by env vars so it works transparently outside Docker too.
+    """Remaps localhost to docker host aliases inside Docker.
 
-    Env vars:
-      MYSQL_DOCKER_HOST      — override for MySQL targets (default: 'mysql')
-      POSTGRES_DOCKER_HOST   — override for PostgreSQL targets (default: unchanged)
+    Args:
+        host: Host name.
+        target_db: Name of target DB dialect.
+
+    Returns:
+        str: Resolved host name.
     """
     if host.strip().lower() not in _LOCALHOST_ALIASES:
-        return host  # external host — leave as-is
+        return host
 
     db = target_db.lower()
     if db == "mysql":
-        docker_host = os.getenv("MYSQL_DOCKER_HOST", "")
+        docker_host = settings.MYSQL_DOCKER_HOST
         if docker_host:
-            logger.info(
-                f"Remapping target host '{host}' → '{docker_host}' via MYSQL_DOCKER_HOST"
-            )
+            logger.info(f"Remapping target host '{host}' to '{docker_host}' via Settings")
             return docker_host
     elif db in ("postgresql", "postgres", "redshift"):
-        docker_host = os.getenv("POSTGRES_DOCKER_HOST", "")
+        docker_host = settings.POSTGRES_DOCKER_HOST
         if docker_host:
-            logger.info(
-                f"Remapping target host '{host}' → '{docker_host}' via POSTGRES_DOCKER_HOST"
-            )
+            logger.info(f"Remapping target host '{host}' to '{docker_host}' via Settings")
             return docker_host
 
     return host
 
-
 def get_decrypted_password(password: str) -> str:
-    """
-    Decrypts the database password if it is encrypted.
-    Otherwise returns the password as-is (for development and fallback support).
+    """Decrypts database passwords if encrypted.
+
+    Args:
+        password: Raw password.
+
+    Returns:
+        str: Decrypted password.
     """
     if not password:
         return ""
@@ -52,27 +73,34 @@ def get_decrypted_password(password: str) -> str:
         try:
             return decrypt_payload(password)
         except Exception:
-            # Fall back to raw password if decryption raises an error
             pass
     return password
 
-
 def _resolve_connection_params(db_config: Dict[str, Any], override_port: Optional[int] = None) -> Dict[str, Any]:
-    target_db = db_config.get("targetDb", "postgresql").lower()
-    username = db_config.get("username", "")
-    password_raw = db_config.get("password", "")
+    """Resolves database parameters from config.
+
+    Args:
+        db_config: Raw config dict.
+        override_port: Optional port to override.
+
+    Returns:
+        dict: Resolved parameters dictionary.
+    """
+    cfg = BaseDBConfig(**db_config)
+    target_db = cfg.target_db.lower()
+    username = cfg.username
+    password_raw = cfg.password
     password_decrypted = get_decrypted_password(password_raw)
-    
+
     if override_port is not None:
         host = "127.0.0.1"
         port = override_port
     else:
-        raw_host = db_config.get("host", "127.0.0.1")
-        host = _resolve_host(raw_host, target_db)
-        port = db_config.get("port", 5432)
-        
-    database = db_config.get("database", "")
-    
+        host = _resolve_host(cfg.host, target_db)
+        port = cfg.port
+
+    database = cfg.database
+
     return {
         "target_db": target_db,
         "username": username,
@@ -82,11 +110,19 @@ def _resolve_connection_params(db_config: Dict[str, Any], override_port: Optiona
         "database": database
     }
 
-
 def get_async_engine(db_config: Dict[str, Any], override_port: Optional[int] = None) -> AsyncEngine:
-    target_db = db_config.get("targetDb", "postgresql").lower()
+    """Retrieves an asynchronous engine instance.
+
+    Args:
+        db_config: Config dictionary.
+        override_port: Optional port to override.
+
+    Returns:
+        AsyncEngine: SQLAlchemy asynchronous engine.
+    """
+    cfg = BaseDBConfig(**db_config)
+    target_db = cfg.target_db.lower()
     if target_db in ("snowflake", "bigquery"):
-        from backend.config import settings
         logger.info(
             f"Initializing {target_db.capitalize()} Cloud Warehouse sync connector. "
             "Simulating warehouse pipeline execution via PostgreSQL database...",
@@ -103,10 +139,10 @@ def get_async_engine(db_config: Dict[str, Any], override_port: Optional[int] = N
     host = params["host"]
     port = params["port"]
     database = params["database"]
-    
+
     escaped_user = urllib.parse.quote_plus(username)
     escaped_password = urllib.parse.quote_plus(password_decrypted)
-    
+
     if target_db in ("postgresql", "postgres"):
         dialect = "postgresql+asyncpg"
     elif target_db == "redshift":
@@ -116,9 +152,9 @@ def get_async_engine(db_config: Dict[str, Any], override_port: Optional[int] = N
         dialect = "mysql+asyncmy"
     else:
         raise ValueError(f"Unsupported database target engine selection: {target_db}")
-        
+
     connection_uri = f"{dialect}://{escaped_user}:{escaped_password}@{host}:{port}/{database}"
-    
+
     engine = create_async_engine(
         connection_uri,
         pool_size=20,
@@ -126,15 +162,21 @@ def get_async_engine(db_config: Dict[str, Any], override_port: Optional[int] = N
         pool_timeout=30,
         pool_pre_ping=True
     )
-    
+
     return engine
 
-
 async def ensure_database_exists(db_config: Dict[str, Any], override_port: Optional[int] = None) -> None:
-    target_db = db_config.get("targetDb", "postgresql").lower()
+    """Ensures that the target database exists.
+
+    Args:
+        db_config: Connection config.
+        override_port: Port override.
+    """
+    cfg = BaseDBConfig(**db_config)
+    target_db = cfg.target_db.lower()
     if target_db in ("snowflake", "bigquery"):
         return
-        
+
     params = _resolve_connection_params(db_config, override_port)
     target_db = params["target_db"]
     username = params["username"]
@@ -144,10 +186,10 @@ async def ensure_database_exists(db_config: Dict[str, Any], override_port: Optio
     database = params["database"].strip()
     if not database:
         return
-        
+
     escaped_user = urllib.parse.quote_plus(username)
     escaped_password = urllib.parse.quote_plus(password_decrypted)
-    
+
     if target_db in ("postgresql", "postgres"):
         dialect = "postgresql+asyncpg"
         default_db = "postgres"
@@ -159,7 +201,7 @@ async def ensure_database_exists(db_config: Dict[str, Any], override_port: Optio
 
     temp_uri = f"{dialect}://{escaped_user}:{escaped_password}@{host}:{port}/{default_db}"
     temp_engine = create_async_engine(temp_uri, isolation_level="AUTOCOMMIT")
-    
+
     try:
         async with temp_engine.connect() as conn:
             if target_db in ("postgresql", "postgres"):

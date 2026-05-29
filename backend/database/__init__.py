@@ -1,2 +1,1 @@
-from .database import engine, SessionLocal, Base, get_pg_connection
-
+from .database import engine, SessionLocal, get_db

@@ -6,19 +6,22 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-
 def get_auth_headers(
     auth_type: str, 
     auth_token: str, 
     custom_headers: Optional[Dict[str, str]] = None
 ) -> Dict[str, str]:
-    """
-    Constructs the HTTP request headers by injecting the auth token
-    and merging any user-specified custom query headers.
+    """Constructs HTTP request headers based on authentication configuration.
+
+    Args:
+        auth_type: Authentication strategy name (bearer, basic, apikey).
+        auth_token: Secret credentials token.
+        custom_headers: Dynamic headers to merge.
+
+    Returns:
+        dict: Configured headers payload dictionary.
     """
     headers = {}
-    
-    # 1. Inject authorization tokens based on authentication configuration type
     auth_type_lower = auth_type.strip().lower()
     
     if auth_type_lower == "bearer" and auth_token:
@@ -28,18 +31,21 @@ def get_auth_headers(
     elif auth_type_lower == "apikey" and auth_token:
         headers["X-API-Key"] = auth_token
         
-    # 2. Merge custom headers payload (e.g., custom Tenant tags or Client details)
     if custom_headers:
         for key, val in custom_headers.items():
             headers[str(key)] = str(val)
             
     return headers
 
-
 def resolve_data_path(data: Any, path: Optional[str]) -> Any:
-    """
-    Drills down into a nested dictionary/list structure based on a dot-notation path.
-    Supports formats like 'results', '$.results', '$.data.items', and numeric list indices.
+    """Drills down into nested dictionaries or lists using a dot-notation path.
+
+    Args:
+        data: Parent dynamic data object.
+        path: Path string (e.g. $.results, results.items).
+
+    Returns:
+        Any: Matching nested element value.
     """
     if not path:
         return data
@@ -74,7 +80,6 @@ def resolve_data_path(data: Any, path: Optional[str]) -> Any:
             return None
     return current
 
-
 def extract_records_generator(
     endpoint_url: str,
     auth_config: Dict[str, Any],
@@ -82,10 +87,20 @@ def extract_records_generator(
     custom_headers: Optional[Dict[str, str]] = None,
     data_path: Optional[str] = None
 ) -> Generator[List[Dict[str, Any]], None, None]:
-    """
-    Python generator that streams records page-by-page from a REST API endpoint.
-    Maintains a pooled HTTPX client, handles common pagination protocols,
-    and applies exponential backoff sleeps when encountering HTTP 429 (Too Many Requests).
+    """Generates continuous streams of records from API endpoint.
+
+    Args:
+        endpoint_url: Target URL.
+        auth_config: Credentials config.
+        pagination_config: Pagination strategy parameters.
+        custom_headers: Extra custom headers.
+        data_path: Target nested property path.
+
+    Yields:
+        list: Page records array.
+
+    Raises:
+        ConnectionError: Request failure or authorization errors.
     """
     auth_type = auth_config.get("authType", "bearer")
     auth_token = auth_config.get("authToken", "")
@@ -94,10 +109,7 @@ def extract_records_generator(
         f"Extractor auth resolved: type={auth_type!r}, token_present={bool(auth_token)}"
     )
 
-    # Set up HTTP connection pool parameters to recycle sockets efficiently
     limits = httpx.Limits(max_keepalive_connections=5, max_connections=10)
-
-    # Parse pagination strategy — treat missing/empty config as "none" (single fetch)
     raw_pag_type = str(pagination_config.get("type") or "").strip().lower()
     pag_type = raw_pag_type if raw_pag_type in ("page", "offset", "cursor") else "none"
     limit = int(pagination_config.get("limit", 100))
@@ -117,7 +129,6 @@ def extract_records_generator(
             params = {}
             url = endpoint_url
 
-            # Dynamically compile pagination arguments — skip entirely for "none"
             if pag_type == "page":
                 params[page_param] = page
                 params[limit_param] = limit
@@ -128,7 +139,6 @@ def extract_records_generator(
                 url = next_url
                 if not url:
                     break
-            # pag_type == "none": no params appended, single clean request
 
             retries = 3
             backoff = 2.0
@@ -138,7 +148,6 @@ def extract_records_generator(
                 try:
                     response = client.get(url, headers=headers, params=params)
 
-                    # Fail fast on auth errors — no point retrying with same bad creds
                     if response.status_code in (401, 403):
                         raise ConnectionError(
                             f"HTTP {response.status_code} {'Unauthorized' if response.status_code == 401 else 'Forbidden'} "
@@ -146,7 +155,6 @@ def extract_records_generator(
                             f"Response: {response.text[:300]}"
                         )
 
-                    # Handle rate limiting specifically
                     if response.status_code == 429:
                         retry_after = response.headers.get("Retry-After")
                         sleep_time = float(retry_after) if (retry_after and retry_after.isdigit()) else backoff
@@ -156,7 +164,6 @@ def extract_records_generator(
                         backoff *= 2
                         continue
 
-                    # Handle pagination boundary (HTTP 404)
                     if response.status_code == 404 and has_fetched:
                         logger.info("Received HTTP 404 on pagination boundary. Concluding extraction stream.")
                         response = None
@@ -165,7 +172,7 @@ def extract_records_generator(
                     response.raise_for_status()
                     break
                 except ConnectionError:
-                    raise  # Re-raise auth/forbidden errors immediately without retry
+                    raise
                 except httpx.HTTPError as e:
                     retries -= 1
                     if retries == 0:
@@ -178,21 +185,15 @@ def extract_records_generator(
                 break
                 
             data = response.json()
-            
-            # Drill down to nested node if path is specified
             target_data = resolve_data_path(data, data_path)
-            
-            # Extract list records array from potential wrapping objects in response
             records = None
             if isinstance(target_data, list):
                 records = target_data
             elif isinstance(target_data, dict):
-                # Try common object wrapper attributes
                 for key in ("data", "records", "results", "items"):
                     if key in target_data and isinstance(target_data[key], list):
                         records = target_data[key]
                         break
-                # Fallback: check if any value in the target dictionary is a list
                 if records is None:
                     for val in target_data.values():
                         if isinstance(val, list):
@@ -216,29 +217,25 @@ def extract_records_generator(
             yield records
             has_fetched = True
 
-            # For "none" pagination — single fetch only, stop after first page
             if pag_type == "none":
                 break
 
             if len(records) < limit:
                 break
             
-            # Shift cursors / offsets for subsequent page dial
             if pag_type == "page":
                 page += 1
             elif pag_type == "offset":
                 offset += len(records)
                 if len(records) < limit:
-                    break  # Final page reached
+                    break
             elif pag_type == "cursor":
                 next_url = None
-                # Check inside JSON payload for next cursor strings
                 if "next" in data and isinstance(data["next"], str):
                     next_url = data["next"]
                 elif "next_page" in data and isinstance(data["next_page"], str):
                     next_url = data["next_page"]
                 
-                # Check HTTP Link headers
                 if not next_url and "link" in response.headers:
                     links = response.headers["link"].split(",")
                     for link in links:
@@ -247,4 +244,4 @@ def extract_records_generator(
                             break
                             
                 if not next_url:
-                    break  # No cursor returned, extraction concluded
+                    break

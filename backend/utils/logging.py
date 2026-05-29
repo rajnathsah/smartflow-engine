@@ -2,34 +2,31 @@ import contextvars
 import logging
 import structlog
 
-# Define multi-tenant context variable.
-# This variable is isolated to the current execution context (coroutine / thread).
 tenant_uuid_context: contextvars.ContextVar[str] = contextvars.ContextVar("tenant_uuid")
 
+def inject_tenant_context(logger, log_method, event_dict) -> dict:
+    """Structlog processor that injects the active tenant_uuid context variable.
 
-def inject_tenant_context(logger, log_method, event_dict):
-    """
-    Custom structlog processor that inspects the current coroutine/thread contextvars
-    and automatically injects the active tenant_uuid into the JSON payload.
+    Args:
+        logger: Logger instance.
+        log_method: Logger method name.
+        event_dict: Logging event dict.
+
+    Returns:
+        dict: The updated event dict containing active tenant UUID.
     """
     try:
         tenant_uuid = tenant_uuid_context.get()
         if tenant_uuid:
             event_dict["tenant_uuid"] = tenant_uuid
     except LookupError:
-        # Context variable is unset for this thread
         pass
     except Exception:
         pass
     return event_dict
 
-
-def configure_logging():
-    """
-    Configures structlog to output ISO-timestamped JSON logs.
-    Decoupled processors automatically track call-stacks, log levels,
-    active tenant isolation flags, and formats exceptions.
-    """
+def configure_logging() -> None:
+    """Configures structlog to output JSON formatted logs with standard processors."""
     structlog.configure(
         processors=[
             structlog.contextvars.merge_contextvars,
@@ -37,8 +34,8 @@ def configure_logging():
             structlog.processors.TimeStamper(fmt="iso"),
             structlog.processors.StackInfoRenderer(),
             structlog.processors.format_exc_info,
-            inject_tenant_context,  # Dynamic tenant context variable mapping
-            structlog.processors.JSONRenderer()  # Format as single-line JSON entries
+            inject_tenant_context,
+            structlog.processors.JSONRenderer()
         ],
         context_class=dict,
         logger_factory=structlog.PrintLoggerFactory(),
@@ -46,6 +43,4 @@ def configure_logging():
         cache_logger_on_first_use=True,
     )
 
-
-# Instantiate the global structlog logger for use across the application
 logger = structlog.get_logger("synq")

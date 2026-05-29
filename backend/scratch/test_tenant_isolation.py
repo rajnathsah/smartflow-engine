@@ -2,14 +2,15 @@ import os
 import sys
 from fastapi.testclient import TestClient
 
-# Ensure backend can be imported
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "..", "OneDrive", "Desktop", "smartflow")))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
 from backend.main import app
 from backend.services.auth_service import AuthService
-from backend.database import get_pg_connection
+from backend.database.database import SessionLocal
+from backend.models import Tenant, Source, Connection
 
 def run_tests():
+    """Executes multi-tenant data isolation integration tests."""
     client = TestClient(app)
     auth_service = AuthService()
     token_tenant_a = auth_service.create_token("userA", "usera@tenant.com", "tenant-a-123", "Tenant_User", "access", 60)
@@ -20,16 +21,16 @@ def run_tests():
     headers_b = {"Authorization": f"Bearer {token_tenant_b}"}
     headers_no_tenant = {"Authorization": f"Bearer {token_no_tenant}"}
     
-    # Clean up any residual test data from previous runs
-    conn = get_pg_connection()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM sources WHERE id = 'test-src-123'")
-    cursor.execute("DELETE FROM connections WHERE id = 'test-conn-123'")
-    cursor.execute("DELETE FROM tenants WHERE tenant_id IN ('tenant-a-123', 'tenant-b-456')")
-    cursor.execute("INSERT INTO tenants (tenant_id, tenant_uuid, name, created_at) VALUES ('tenant-a-123', 'tenant-a-123', 'Tenant A Workspace', 'now')")
-    cursor.execute("INSERT INTO tenants (tenant_id, tenant_uuid, name, created_at) VALUES ('tenant-b-456', 'tenant-b-456', 'Tenant B Workspace', 'now')")
-    conn.commit()
-    conn.close()
+    with SessionLocal() as db:
+        db.query(Source).filter(Source.id == "test-src-123").delete()
+        db.query(Connection).filter(Connection.id == "test-conn-123").delete()
+        db.query(Tenant).filter(Tenant.tenant_id.in_(["tenant-a-123", "tenant-b-456"])).delete()
+        
+        tenant_a = Tenant(tenant_id="tenant-a-123", tenant_uuid="tenant-a-123", name="Tenant A Workspace", created_at="now")
+        tenant_b = Tenant(tenant_id="tenant-b-456", tenant_uuid="tenant-b-456", name="Tenant B Workspace", created_at="now")
+        db.add(tenant_a)
+        db.add(tenant_b)
+        db.commit()
 
     print("\n--- 1. Testing GET /sources without tenant_id in JWT ---")
     res = client.get("/api/v1/pipelines/sources", headers=headers_no_tenant)
@@ -69,7 +70,7 @@ def run_tests():
     assert res.status_code == 404
 
     print("\n--- 6. Testing PUT /sources/test-src-123 for Tenant B ---")
-    res = client.put("/api/v1/pipelines/sources/test-src-123", json={"name": "Hacked Source"}, headers=headers_b)
+    res = client.put("/api/v1/pipelines/sources/test-src-123", json={"name": "Hacked Source", "type": "api"}, headers=headers_b)
     print(f"Status: {res.status_code}, Detail: {res.json()}")
     assert res.status_code == 404
 
@@ -89,25 +90,20 @@ def run_tests():
     assert res.status_code == 403
 
     print("\n--- 9. Testing trigger sync cross-tenant hijack for Tenant B ---")
-    # Provision a connection for Tenant A
-    conn = get_pg_connection()
-    cursor = conn.cursor()
-    cursor.execute("INSERT INTO connections (id, tenant_id, data, created_at) VALUES ('test-conn-123', 'tenant-a-123', '{}', 'now')")
-    conn.commit()
-    conn.close()
+    with SessionLocal() as db:
+        new_conn = Connection(id="test-conn-123", tenant_id="tenant-a-123", data="{}", created_at="now", updated_at="now")
+        db.add(new_conn)
+        db.commit()
 
     res = client.post("/api/v1/pipelines/test-conn-123/sync", json={}, headers=headers_b)
     print(f"Status: {res.status_code}, Detail: {res.json()}")
     assert res.status_code == 403
 
-    # Clean up test database entries
-    conn = get_pg_connection()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM sources WHERE id = 'test-src-123'")
-    cursor.execute("DELETE FROM connections WHERE id = 'test-conn-123'")
-    cursor.execute("DELETE FROM tenants WHERE tenant_id IN ('tenant-a-123', 'tenant-b-456')")
-    conn.commit()
-    conn.close()
+    with SessionLocal() as db:
+        db.query(Source).filter(Source.id == "test-src-123").delete()
+        db.query(Connection).filter(Connection.id == "test-conn-123").delete()
+        db.query(Tenant).filter(Tenant.tenant_id.in_(["tenant-a-123", "tenant-b-456"])).delete()
+        db.commit()
     
     print("\n--- ALL ISOLATION TESTS PASSED SUCCESSFULLY! ---")
 

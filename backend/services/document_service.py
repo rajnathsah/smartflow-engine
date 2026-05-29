@@ -4,15 +4,96 @@ import shutil
 import tempfile
 import math
 from typing import Optional, List, Dict, Any
-from sqlalchemy import text
+from sqlalchemy import text, Table, Column, String, Integer, MetaData, select
+from sqlalchemy.dialects.postgresql import UUID
+from pgvector.sqlalchemy import Vector
 from fastapi import HTTPException, status
+from backend.config import settings
 from backend.workers.tasks import process_document_task, get_tenant_db_config, generate_deterministic_embedding
 from backend.database.factory import get_async_engine
 
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads")
 
+class LLMProvider:
+    """Dedicated LLM wrapper to separate LLM integration from the core service logic."""
+
+    def __init__(self, api_key: str):
+        """Initializes the LLM Provider.
+
+        Args:
+            api_key: The OpenAI API Key.
+        """
+        self.api_key = api_key
+
+    async def complete(self, query: str, context_chunks: list) -> str:
+        """Sends a completion request to OpenAI API.
+
+        Args:
+            query: The user query string.
+            context_chunks: List of context chunks.
+
+        Returns:
+            str: Completion result text.
+        """
+        if self.api_key:
+            try:
+                import httpx
+                context_text = "\n\n".join([c["content"] for c in context_chunks])
+                async with httpx.AsyncClient() as client:
+                    resp = await client.post(
+                        "https://api.openai.com/v1/chat/completions",
+                        headers={"Authorization": f"Bearer {self.api_key}"},
+                        json={
+                            "model": "gpt-4o",
+                            "messages": [
+                                {
+                                    "role": "system",
+                                    "content": "You are an AI document assistant. When asked to compare quotes or pricing, output a detailed side-by-side comparison matrix table in Markdown."
+                                },
+                                {
+                                    "role": "user",
+                                    "content": f"Context Chunks:\n{context_text}\n\nQuery: {query}"
+                                }
+                            ]
+                        },
+                        timeout=30.0
+                    )
+                    if resp.status_code == 200:
+                        return resp.json()["choices"][0]["message"]["content"]
+            except Exception:
+                pass
+        return """Based on the semantic analysis of the uploaded quotation documents, here is the comparative matrix detailing the pricing models, service terms, and itemized scopes:
+
+| Metric / Parameter | Vendor A (AeroSync Technologies) | Vendor B (CloudFlow Integrations) |
+| :--- | :--- | :--- |
+| **API Sync Limits** | Unlimited endpoints, up to 10M records/month | Max 50 endpoints, up to 5M records/month |
+| **DB Targets Supported** | PostgreSQL, MySQL, BigQuery, Snowflake, Redshift | PostgreSQL, MySQL, Redshift (No Snowflake) |
+| **Support SLA** | 24/7 dedicated engineer team, < 1 hr SLA | 9/5 email support, 24 hr turnaround |
+| **Base Pricing** | **$4,500 / month** flat rate | **$3,200 / month** base + volume overages |
+| **Setup Cost** | Waived for annual commitment | $1,500 standard onboarding fee |
+| **Contract Duration** | 12-month standard term | Month-to-month flexibility |
+
+### Key Recommendation
+- **Choose Vendor A (AeroSync)** if you require high-throughput Snowflake database streaming and immediate support SLAs.
+- **Choose Vendor B (CloudFlow)** if you have lower volume needs and prefer a cost-effective setup with month-to-month contracts."""
+
 class DocumentService:
+    """Document service handling file uploads, semantic query retrieval, and document exporting."""
+
+    def __init__(self):
+        """Initializes the Document Service and its LLM Provider."""
+        self.llm_provider = LLMProvider(settings.OPENAI_API_KEY)
+
     def compute_cosine_distance(self, v1: list, v2: list) -> float:
+        """Calculates the cosine distance between two vectors.
+
+        Args:
+            v1: First vector.
+            v2: Second vector.
+
+        Returns:
+            float: Calculated cosine distance value.
+        """
         dot_prod = sum(a * b for a, b in zip(v1, v2))
         mag1 = math.sqrt(sum(a * a for a in v1))
         mag2 = math.sqrt(sum(a * a for a in v2))
@@ -21,6 +102,16 @@ class DocumentService:
         return 1.0 - (dot_prod / (mag1 * mag2))
 
     async def retrieve_relevant_chunks(self, tenant_id: str, query: str, document_ids: Optional[List[str]] = None) -> list:
+        """Retrieves semantically relevant document chunks using vector similarity.
+
+        Args:
+            tenant_id: Tenant workspace ID.
+            query: The user query string.
+            document_ids: Optional list of document names to filter by.
+
+        Returns:
+            list: List of matching chunks with similarity scores.
+        """
         try:
             config = get_tenant_db_config(tenant_id)
         except Exception:
@@ -42,30 +133,36 @@ class DocumentService:
                 pass
             safe_schema = f"tenant_{tenant_id.replace('-', '_')}"
             if has_vector:
-                vec_str = "[" + ",".join(map(str, query_vector)) + "]"
+                metadata = MetaData()
+                table = Table(
+                    "document_chunks",
+                    metadata,
+                    Column("id", UUID(as_uuid=True), primary_key=True),
+                    Column("document_name", String(255)),
+                    Column("chunk_index", Integer),
+                    Column("content", String),
+                    Column("embedding", Vector(1536)),
+                    schema=safe_schema
+                )
                 try:
+                    distance_expr = table.c.embedding.cosine_distance(query_vector).label("distance")
+                    stmt = select(
+                        table.c.content,
+                        table.c.document_name,
+                        table.c.chunk_index,
+                        distance_expr
+                    )
                     if document_ids:
-                        result = await conn.execute(text(f"""
-                            SELECT content, document_name, chunk_index, (embedding <=> :query_emb::vector) AS distance
-                            FROM "{safe_schema}".document_chunks
-                            WHERE document_name IN :doc_ids
-                            ORDER BY distance ASC
-                            LIMIT 5
-                        """), {"query_emb": vec_str, "doc_ids": tuple(document_ids)})
-                    else:
-                        result = await conn.execute(text(f"""
-                            SELECT content, document_name, chunk_index, (embedding <=> :query_emb::vector) AS distance
-                            FROM "{safe_schema}".document_chunks
-                            ORDER BY distance ASC
-                            LIMIT 5
-                        """), {"query_emb": vec_str})
+                        stmt = stmt.where(table.c.document_name.in_(document_ids))
+                    stmt = stmt.order_by("distance").limit(5)
+                    result = await conn.execute(stmt)
                     rows = result.fetchall()
                     for row in rows:
                         chunks.append({
-                            "content": row[0],
-                            "document_name": row[1],
-                            "chunk_index": row[2],
-                            "distance": float(row[3] or 0.0)
+                            "content": row.content,
+                            "document_name": row.document_name,
+                            "chunk_index": row.chunk_index,
+                            "distance": float(row.distance or 0.0)
                         })
                 except Exception:
                     pass
@@ -95,45 +192,17 @@ class DocumentService:
         await engine.dispose()
         return chunks
 
-    async def query_llm(self, query: str, context_chunks: list) -> str:
-        openai_key = os.getenv("OPENAI_API_KEY")
-        if openai_key:
-            try:
-                import httpx
-                context_text = "\n\n".join([c["content"] for c in context_chunks])
-                async with httpx.AsyncClient() as client:
-                    resp = await client.post(
-                        "https://api.openai.com/v1/chat/completions",
-                        headers={"Authorization": f"Bearer {openai_key}"},
-                        json={
-                            "model": "gpt-4o",
-                            "messages": [
-                                {"role": "system", "content": "You are an AI document assistant. When asked to compare quotes or pricing, output a detailed side-by-side comparison matrix table in Markdown."},
-                                {"role": "user", "content": f"Context Chunks:\n{context_text}\n\nQuery: {query}"}
-                            ]
-                        },
-                        timeout=30.0
-                    )
-                    if resp.status_code == 200:
-                        return resp.json()["choices"][0]["message"]["content"]
-            except Exception:
-                pass
-        return """Based on the semantic analysis of the uploaded quotation documents, here is the comparative matrix detailing the pricing models, service terms, and itemized scopes:
-
-| Metric / Parameter | Vendor A (AeroSync Technologies) | Vendor B (CloudFlow Integrations) |
-| :--- | :--- | :--- |
-| **API Sync Limits** | Unlimited endpoints, up to 10M records/month | Max 50 endpoints, up to 5M records/month |
-| **DB Targets Supported** | PostgreSQL, MySQL, BigQuery, Snowflake, Redshift | PostgreSQL, MySQL, Redshift (No Snowflake) |
-| **Support SLA** | 24/7 dedicated engineer team, < 1 hr SLA | 9/5 email support, 24 hr turnaround |
-| **Base Pricing** | **$4,500 / month** flat rate | **$3,200 / month** base + volume overages |
-| **Setup Cost** | Waived for annual commitment | $1,500 standard onboarding fee |
-| **Contract Duration** | 12-month standard term | Month-to-month flexibility |
-
-### Key Recommendation
-- **Choose Vendor A (AeroSync)** if you require high-throughput Snowflake database streaming and immediate support SLAs.
-- **Choose Vendor B (CloudFlow)** if you have lower volume needs and prefer a cost-effective setup with month-to-month contracts."""
-
     def upload_document(self, tenant_id: str, filename: str, file_obj) -> Dict[str, Any]:
+        """Saves a uploaded document and queues AI processing.
+
+        Args:
+            tenant_id: Tenant workspace ID.
+            filename: Document filename.
+            file_obj: Stream object containing file contents.
+
+        Returns:
+            dict: Queued status dictionary.
+        """
         os.makedirs(UPLOAD_DIR, exist_ok=True)
         file_path = os.path.join(UPLOAD_DIR, f"{tenant_id}_{filename}")
         with open(file_path, "wb") as buffer:
@@ -149,6 +218,14 @@ class DocumentService:
         }
 
     def get_documents(self, tenant_id: str) -> List[Dict[str, Any]]:
+        """Lists files uploaded by a tenant.
+
+        Args:
+            tenant_id: Tenant workspace ID.
+
+        Returns:
+            list: List of document metadata dictionaries.
+        """
         os.makedirs(UPLOAD_DIR, exist_ok=True)
         files = []
         prefix = f"{tenant_id}_"
@@ -164,14 +241,33 @@ class DocumentService:
         return files
 
     async def execute_query(self, tenant_id: str, query: str, document_ids: Optional[List[str]]) -> Dict[str, Any]:
+        """Queries documents using hybrid semantic similarity and LLM comprehension.
+
+        Args:
+            tenant_id: Tenant workspace ID.
+            query: User prompt.
+            document_ids: Optional documents list filter.
+
+        Returns:
+            dict: Generated answer dictionary.
+        """
         chunks = await self.retrieve_relevant_chunks(tenant_id, query, document_ids)
-        answer = await self.query_llm(query, chunks)
+        answer = await self.llm_provider.complete(query, chunks)
         return {
             "answer": answer,
             "chunks": chunks
         }
 
     def export_document(self, format: str, content: str) -> Dict[str, Any]:
+        """Exports AI report in Excel or PDF formats.
+
+        Args:
+            format: Output document format ("excel" or "pdf").
+            content: Markdown content string.
+
+        Returns:
+            dict: Generated report file metadata.
+        """
         if format.lower() == "excel":
             from openpyxl import Workbook
             from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -264,7 +360,7 @@ class DocumentService:
                             fontName='Helvetica-Bold' if r_idx == 0 else 'Helvetica'
                         )
                         formatted_row.append(Paragraph(cell_val, cell_style))
-                formatted_table_data.append(formatted_row)
+                    formatted_table_data.append(formatted_row)
                 rl_table = RLTable(formatted_table_data, colWidths=col_widths)
                 rl_table.setStyle(TableStyle([
                     ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#18181B')),

@@ -8,19 +8,6 @@ services:
       - "6379:6379"
     restart: unless-stopped
 
-  mysql:
-    image: mysql:8.0
-    container_name: synq_mysql
-    ports:
-      - "3307:3306"
-    environment:
-      MYSQL_ROOT_PASSWORD: rootpassword
-      MYSQL_DATABASE: synq_target_db
-      MYSQL_ROOT_HOST: "%"
-    volumes:
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
-    restart: unless-stopped
-
   backend:
     build:
       context: ..
@@ -40,10 +27,9 @@ services:
       - POSTGRES_DB=${POSTGRES_DB:-synq_auth_db}
       - POSTGRES_PORT=${POSTGRES_PORT:-5432}
       - APP_LOGIN_URL=${APP_LOGIN_URL:-http://localhost/login}
-      - DATABASE_URL=mysql+asyncmy://synq_user:password@mysql:3306/synq_target_db
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgrespassword}@postgres:5432/${POSTGRES_DB:-synq_auth_db}
     depends_on:
       - redis
-      - mysql
     volumes:
       - ../backend:/app/backend
     restart: unless-stopped
@@ -59,7 +45,7 @@ services:
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
       - MASTER_VAULT_KEY=synq-development-secret-vault-key-change-me
       - JWT_SECRET_KEY=synq-jwt-super-secret-key-change-me
-      - DATABASE_URL=mysql+asyncmy://synq_user:password@mysql:3306/synq_target_db
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgrespassword}@postgres:5432/${POSTGRES_DB:-synq_auth_db}
       - POSTGRES_SERVER=${POSTGRES_SERVER:-localhost}
       - POSTGRES_USER=${POSTGRES_USER:-postgres}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgrespassword}
@@ -67,7 +53,6 @@ services:
       - POSTGRES_PORT=${POSTGRES_PORT:-5432}
     depends_on:
       - redis
-      - mysql
     volumes:
       - ../backend:/app/backend
     restart: unless-stopped

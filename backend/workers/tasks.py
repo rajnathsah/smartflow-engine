@@ -430,11 +430,12 @@ async def _run_with_engine(
 
     password_decrypted = get_decrypted_password(password)
 
+    from backend.config import settings
     if host.strip().lower() in ("localhost", "127.0.0.1", "::1"):
         if target_db == "mysql":
-            host = os.getenv("MYSQL_DOCKER_HOST", "mysql")
+            host = settings.MYSQL_DOCKER_HOST or "mysql"
         elif target_db in ("postgresql", "postgres"):
-            host = os.getenv("POSTGRES_DOCKER_HOST", "postgres")
+            host = settings.POSTGRES_DOCKER_HOST or "postgres"
 
     if host == "mysql":
         port = 3306
@@ -738,17 +739,15 @@ def semantic_chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -
 
 
 def get_tenant_db_config(tenant_id: str) -> Dict[str, Any]:
-    from backend.database import get_pg_connection
-    conn = get_pg_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT data FROM destinations WHERE tenant_id = ?", (tenant_id,))
-    rows = cursor.fetchall()
-    conn.close()
-    for row in rows:
-        config = json.loads(row["data"])
-        dialect = str(config.get("targetDbDialect") or config.get("targetDb") or "").lower()
-        if dialect in ("postgresql", "postgres"):
-            return config
+    from backend.database import SessionLocal
+    from backend.models import Destination
+    with SessionLocal() as db:
+        rows = db.query(Destination).filter(Destination.tenant_id == tenant_id).all()
+        for row in rows:
+            config = json.loads(row.data)
+            dialect = str(config.get("targetDbDialect") or config.get("targetDb") or "").lower()
+            if dialect in ("postgresql", "postgres"):
+                return config
     raise ValueError(f"No registered PostgreSQL target database found for tenant: {tenant_id}")
 
 
