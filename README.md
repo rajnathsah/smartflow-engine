@@ -55,7 +55,7 @@ The backend is a FastAPI application orchestrating user authentication, JWT-base
     *   factory.py: Generates SQL dialect drivers (postgresql+asyncpg / mysql+asyncmy) with dynamic database credential decryption and client connection pooling. Enforces strict execution limits (pool_size=20, max_overflow=10, pool_timeout=30, pool_pre_ping=True) to maintain socket stability during bulk transfers.
 *   **Utilities Module (backend/utils/)**: Security and infrastructure helpers:
     *   encryption.py: AES-256-GCM encryption vault powered by cryptography.hazmat. Hashes environmental MASTER_VAULT_KEY values to verify exactly 32-byte master parameters.
-    *   tunneling.py: Context-managed SSH Bastion tunnel generator via sshtunnel and paramiko. Evaluates PEM private keys purely in-memory (using StringIO) to avoid disk storage and disposes tunnel threads in a finally block to prevent port exhaustion.
+    *   tunneling.py: Placeholder for SSH Bastion tunneling (disabled/removed).
     *   logging.py and limiter.py: Structured JSON logger (structlog) and client request rate-limiting utilities (slowapi).
 *   **Asynchronous Workers (backend/workers/)**: Asynchronous ETL tasks:
     *   celery_app.py: Celery instance configuration backed by Redis. Configured to avoid OOM faults: worker_max_tasks_per_child=50 (forces process recycling), task_acks_late=True (guarantees delivery), and worker_prefetch_multiplier=1 (prevents hoarding).
@@ -236,7 +236,6 @@ celery -A backend.workers.celery_app worker --loglevel=info -P solo
 | python-jose | JWT signing and verification |
 | passlib + bcrypt | Secure password hashing |
 | cryptography | AES-256-GCM vault |
-| sshtunnel + paramiko | SSH Bastion tunneling |
 | structlog | Structured JSON logging |
 | slowapi | Rate limiting |
 
