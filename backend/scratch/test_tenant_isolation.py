@@ -6,7 +6,8 @@ from fastapi.testclient import TestClient
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "..", "OneDrive", "Desktop", "smartflow")))
 
 from backend.main import app
-from backend.api.auth import create_token, get_conn
+from backend.services.auth_service import create_token
+from backend.database import get_pg_connection
 
 def run_tests():
     client = TestClient(app)
@@ -21,10 +22,13 @@ def run_tests():
     headers_no_tenant = {"Authorization": f"Bearer {token_no_tenant}"}
     
     # Clean up any residual test data from previous runs
-    conn = get_conn()
+    conn = get_pg_connection()
     cursor = conn.cursor()
     cursor.execute("DELETE FROM sources WHERE id = 'test-src-123'")
     cursor.execute("DELETE FROM connections WHERE id = 'test-conn-123'")
+    cursor.execute("DELETE FROM tenants WHERE tenant_id IN ('tenant-a-123', 'tenant-b-456')")
+    cursor.execute("INSERT INTO tenants (tenant_id, tenant_uuid, name, created_at) VALUES ('tenant-a-123', 'tenant-a-123', 'Tenant A Workspace', 'now')")
+    cursor.execute("INSERT INTO tenants (tenant_id, tenant_uuid, name, created_at) VALUES ('tenant-b-456', 'tenant-b-456', 'Tenant B Workspace', 'now')")
     conn.commit()
     conn.close()
 
@@ -35,8 +39,8 @@ def run_tests():
     
     print("\n--- 2. Testing GET /sources without Authorization header ---")
     res = client.get("/api/v1/pipelines/sources")
-    print(f"Status: {res.status_code}")
-    assert res.status_code == 403 # FastAPI HTTPBearer returns 403 on missing authorization header
+    print(f"Status: {res.status_code}, Detail: {res.json()}")
+    assert res.status_code in (401, 403)
 
     print("\n--- 3. Testing POST /sources for Tenant A ---")
     payload = {
@@ -87,7 +91,7 @@ def run_tests():
 
     print("\n--- 9. Testing trigger sync cross-tenant hijack for Tenant B ---")
     # Provision a connection for Tenant A
-    conn = get_conn()
+    conn = get_pg_connection()
     cursor = conn.cursor()
     cursor.execute("INSERT INTO connections (id, tenant_id, data, created_at) VALUES ('test-conn-123', 'tenant-a-123', '{}', 'now')")
     conn.commit()
@@ -98,10 +102,11 @@ def run_tests():
     assert res.status_code == 403
 
     # Clean up test database entries
-    conn = get_conn()
+    conn = get_pg_connection()
     cursor = conn.cursor()
     cursor.execute("DELETE FROM sources WHERE id = 'test-src-123'")
     cursor.execute("DELETE FROM connections WHERE id = 'test-conn-123'")
+    cursor.execute("DELETE FROM tenants WHERE tenant_id IN ('tenant-a-123', 'tenant-b-456')")
     conn.commit()
     conn.close()
     

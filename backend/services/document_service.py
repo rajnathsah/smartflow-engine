@@ -1,32 +1,17 @@
-from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, status
-from fastapi.responses import FileResponse
-from pydantic import BaseModel
-from typing import Optional, List
 import os
 import json
 import shutil
+import tempfile
+import math
+from typing import Optional, List, Dict, Any
 from sqlalchemy import text
-from backend.api.auth import get_tenant_uuid
+from fastapi import HTTPException, status
 from backend.workers.tasks import process_document_task, get_tenant_db_config, generate_deterministic_embedding
 from backend.database.factory import get_async_engine
 
-router = APIRouter(
-    prefix="/api/v1/documents",
-    tags=["documents"]
-)
-
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads")
 
-class QueryRequest(BaseModel):
-    query: str
-    document_ids: Optional[List[str]] = None
-
-class ExportRequest(BaseModel):
-    format: str
-    content: str
-
 def compute_cosine_distance(v1: list, v2: list) -> float:
-    import math
     dot_prod = sum(a * b for a, b in zip(v1, v2))
     mag1 = math.sqrt(sum(a * a for a in v1))
     mag2 = math.sqrt(sum(a * a for a in v2))
@@ -54,7 +39,6 @@ async def retrieve_relevant_chunks(tenant_id: str, query: str, document_ids: Opt
             has_vector = result.scalar() is not None
         except Exception:
             pass
-
         safe_schema = f"tenant_{tenant_id.replace('-', '_')}"
         if has_vector:
             vec_str = "[" + ",".join(map(str, query_vector)) + "]"
@@ -131,10 +115,10 @@ async def query_llm(query: str, context_chunks: list) -> str:
                 )
                 if resp.status_code == 200:
                     return resp.json()["choices"][0]["message"]["content"]
+            pass
         except Exception:
             pass
-            
-    return f"""Based on the semantic analysis of the uploaded quotation documents, here is the comparative matrix detailing the pricing models, service terms, and itemized scopes:
+    return """Based on the semantic analysis of the uploaded quotation documents, here is the comparative matrix detailing the pricing models, service terms, and itemized scopes:
 
 | Metric / Parameter | Vendor A (AeroSync Technologies) | Vendor B (CloudFlow Integrations) |
 | :--- | :--- | :--- |
@@ -149,41 +133,22 @@ async def query_llm(query: str, context_chunks: list) -> str:
 - **Choose Vendor A (AeroSync)** if you require high-throughput Snowflake database streaming and immediate support SLAs.
 - **Choose Vendor B (CloudFlow)** if you have lower volume needs and prefer a cost-effective setup with month-to-month contracts."""
 
-@router.post("/upload", status_code=status.HTTP_202_ACCEPTED)
-async def upload_document(
-    file: UploadFile = File(...),
-    tenant_id: str = Depends(get_tenant_uuid)
-):
-    if not tenant_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Unauthorized: tenant_id is missing."
-        )
-    
+def upload_document(tenant_id: str, filename: str, file_obj) -> Dict[str, Any]:
     os.makedirs(UPLOAD_DIR, exist_ok=True)
-    file_path = os.path.join(UPLOAD_DIR, f"{tenant_id}_{file.filename}")
-    
+    file_path = os.path.join(UPLOAD_DIR, f"{tenant_id}_{filename}")
     with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-        
+        shutil.copyfileobj(file_obj, buffer)
     task = process_document_task.apply_async(
-        args=[tenant_id, file_path, file.filename],
+        args=[tenant_id, file_path, filename],
         queue="ai_task_queue"
     )
-    
     return {
         "status": "queued",
         "task_id": task.id,
-        "document_name": file.filename
+        "document_name": filename
     }
 
-@router.get("")
-async def list_documents(tenant_id: str = Depends(get_tenant_uuid)):
-    if not tenant_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Unauthorized: tenant_id is missing."
-        )
+def get_documents(tenant_id: str) -> List[Dict[str, Any]]:
     os.makedirs(UPLOAD_DIR, exist_ok=True)
     files = []
     prefix = f"{tenant_id}_"
@@ -198,33 +163,22 @@ async def list_documents(tenant_id: str = Depends(get_tenant_uuid)):
             })
     return files
 
-@router.post("/query")
-async def query_documents(request: QueryRequest, tenant_id: str = Depends(get_tenant_uuid)):
-    if not tenant_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Unauthorized: tenant_id is missing."
-        )
-    chunks = await retrieve_relevant_chunks(tenant_id, request.query, request.document_ids)
-    answer = await query_llm(request.query, chunks)
+async def execute_query(tenant_id: str, query: str, document_ids: Optional[List[str]]) -> Dict[str, Any]:
+    chunks = await retrieve_relevant_chunks(tenant_id, query, document_ids)
+    answer = await query_llm(query, chunks)
     return {
         "answer": answer,
         "chunks": chunks
     }
 
-@router.post("/export")
-async def export_document(payload: ExportRequest):
-    import tempfile
-    
-    if payload.format.lower() == "excel":
+def export_document(format: str, content: str) -> Dict[str, Any]:
+    if format.lower() == "excel":
         from openpyxl import Workbook
         from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-        
         wb = Workbook()
         ws = wb.active
         ws.title = "Vendor Comparison Matrix"
-        
-        lines = payload.content.split("\n")
+        lines = content.split("\n")
         table_rows = []
         for line in lines:
             if "|" in line:
@@ -232,7 +186,6 @@ async def export_document(payload: ExportRequest):
                 if parts and not all(p == "" or "-" in p for p in parts):
                     cleaned_parts = [p.replace("**", "").replace("`", "") for p in parts]
                     table_rows.append(cleaned_parts)
-                    
         for row_idx, row in enumerate(table_rows, start=1):
             for col_idx, val in enumerate(row, start=1):
                 cell = ws.cell(row=row_idx, column=col_idx, value=val)
@@ -245,31 +198,26 @@ async def export_document(payload: ExportRequest):
                     cell.alignment = Alignment(horizontal="left", vertical="center")
                 thin = Side(border_style="thin", color="E4E4E7")
                 cell.border = Border(top=thin, left=thin, right=thin, bottom=thin)
-                
         for col in ws.columns:
             max_len = max(len(str(cell.value or '')) for cell in col)
             col_letter = col[0].column_letter
             ws.column_dimensions[col_letter].width = max(max_len + 3, 15)
-            
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
         wb.save(temp_file.name)
-        return FileResponse(
-            temp_file.name,
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            filename="vendor_comparison_matrix.xlsx"
-        )
-        
-    elif payload.format.lower() == "pdf":
+        return {
+            "file_path": temp_file.name,
+            "media_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "filename": "vendor_comparison_matrix.xlsx"
+        }
+    elif format.lower() == "pdf":
         from reportlab.lib.pagesizes import letter
         from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table as RLTable, TableStyle
         from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
         from reportlab.lib import colors
-        
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
         doc = SimpleDocTemplate(temp_file.name, pagesize=letter, leftMargin=36, rightMargin=36, topMargin=36, bottomMargin=36)
         story = []
         styles = getSampleStyleSheet()
-        
         title_style = ParagraphStyle(
             'TitleStyle',
             parent=styles['Heading1'],
@@ -286,11 +234,9 @@ async def export_document(payload: ExportRequest):
             leading=12,
             textColor=colors.HexColor('#27272a')
         )
-        
         story.append(Paragraph("synq.to AI Document Analysis Report", title_style))
         story.append(Spacer(1, 10))
-        
-        lines = payload.content.split("\n")
+        lines = content.split("\n")
         table_rows = []
         text_paragraphs = []
         for line in lines:
@@ -302,11 +248,9 @@ async def export_document(payload: ExportRequest):
             else:
                 if line.strip():
                     text_paragraphs.append(line.strip())
-                    
         for tp in text_paragraphs[:2]:
             story.append(Paragraph(tp, body_style))
             story.append(Spacer(1, 6))
-            
         if table_rows:
             col_widths = [150, 180, 180]
             formatted_table_data = []
@@ -321,7 +265,6 @@ async def export_document(payload: ExportRequest):
                     )
                     formatted_row.append(Paragraph(cell_val, cell_style))
                 formatted_table_data.append(formatted_row)
-                
             rl_table = RLTable(formatted_table_data, colWidths=col_widths)
             rl_table.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#18181B')),
@@ -336,16 +279,13 @@ async def export_document(payload: ExportRequest):
             story.append(Spacer(1, 10))
             story.append(rl_table)
             story.append(Spacer(1, 10))
-            
         for tp in text_paragraphs[2:]:
             story.append(Paragraph(tp, body_style))
             story.append(Spacer(1, 6))
-            
         doc.build(story)
-        return FileResponse(
-            temp_file.name,
-            media_type="application/pdf",
-            filename="vendor_comparison_report.pdf"
-        )
-        
+        return {
+            "file_path": temp_file.name,
+            "media_type": "application/pdf",
+            "filename": "vendor_comparison_report.pdf"
+        }
     raise HTTPException(status_code=400, detail="Invalid export format specified. Choose 'excel' or 'pdf'.")

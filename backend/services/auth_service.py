@@ -1,21 +1,14 @@
 import os
 import uuid
-from backend.database import get_pg_connection
 import secrets
 import string
 import httpx
 from datetime import datetime, timedelta
-from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, status, Request
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError, jwt
-from pydantic import BaseModel
+from typing import List, Dict, Any
+from fastapi import HTTPException, status
 from passlib.context import CryptContext
-from dotenv import load_dotenv
-from backend.utils.limiter import limiter
-from backend.utils.logging import tenant_uuid_context
-
-load_dotenv()
+from jose import jwt
+from backend.database import get_pg_connection
 
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "synq-jwt-super-secret-key-change-me")
 JWT_ALGORITHM = "HS256"
@@ -23,21 +16,7 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 120
 RESET_TOKEN_EXPIRE_MINUTES = 15
 INVITE_DENIED_MESSAGE = "Access Denied: You have not been invited to this workspace. Please contact your administrator."
 
-router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
-security_bearer = HTTPBearer()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-
-def get_conn():
-    return get_pg_connection()
-
-
-def ensure_columns(cursor, table: str, columns: dict[str, str]):
-    existing = table_columns(cursor, table)
-    for name, ddl in columns.items():
-        if name not in existing:
-            cursor.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
-
 
 def table_columns(cursor, table: str) -> set[str]:
     cursor.execute(
@@ -46,7 +25,11 @@ def table_columns(cursor, table: str) -> set[str]:
     )
     return {row["column_name"] for row in cursor.fetchall()}
 
-
+def ensure_columns(cursor, table: str, columns: dict[str, str]):
+    existing = table_columns(cursor, table)
+    for name, ddl in columns.items():
+        if name not in existing:
+            cursor.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
 
 def insert_tenant(cursor, tenant_id: str, name: str, created_at: str):
     cols = table_columns(cursor, "tenants")
@@ -61,9 +44,8 @@ def insert_tenant(cursor, tenant_id: str, name: str, created_at: str):
         (tenant_id, tenant_id, name, created_at)
     )
 
-
 def init_db():
-    conn = get_conn()
+    conn = get_pg_connection()
     cursor = conn.cursor()
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS tenants (
@@ -130,9 +112,8 @@ def init_db():
     conn.commit()
     conn.close()
 
-
 def seed_data():
-    conn = get_conn()
+    conn = get_pg_connection()
     cursor = conn.cursor()
     tenant_id = str(uuid.uuid4())
     now = datetime.utcnow().isoformat()
@@ -150,75 +131,10 @@ def seed_data():
     conn.commit()
     conn.close()
 
-
 init_db()
 seed_data()
 
-
-class LoginRequest(BaseModel):
-    tenant: str = ""
-    username: str
-    password: str
-
-
-class LoginResponse(BaseModel):
-    access_token: Optional[str] = None
-    reset_token: Optional[str] = None
-    token_type: str
-    tenant_id: str
-    tenant_uuid: str
-    tenant_name: str
-    role: str
-    email: str
-    is_first_login: bool
-
-
-class RegisterRequest(BaseModel):
-    tenant: str
-    username: str
-    email: str
-    password: str
-
-
-class InviteRequest(BaseModel):
-    email: str
-    name: str
-    role: str = "Tenant_User"
-
-
-class InviteResponse(BaseModel):
-    email: str
-    name: str
-    role: str
-    temp_password: str
-    email_sent: bool
-    email_error: Optional[str] = None
-
-
-class ResetPasswordRequest(BaseModel):
-    new_password: str
-
-
-class GoogleLoginRequest(BaseModel):
-    email: str
-    name: str
-
-
-class GoogleAuthRequest(BaseModel):
-    email: str
-    name: str
-    google_id: str
-
-
-class UserRecordResponse(BaseModel):
-    name: str
-    email: str
-    role: str
-    status: str
-    last_login: str
-
-
-def create_token(username: str, email: str, tenant_id: str, role: str, purpose: str, minutes: int):
+def create_token(username: str, email: str, tenant_id: str, role: str, purpose: str, minutes: int) -> str:
     expire = datetime.utcnow() + timedelta(minutes=minutes)
     return jwt.encode({
         "sub": username,
@@ -230,70 +146,12 @@ def create_token(username: str, email: str, tenant_id: str, role: str, purpose: 
         "exp": expire
     }, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
 
-
-def get_claims_for_purpose(purpose: str, credentials: HTTPAuthorizationCredentials):
-    try:
-        payload = jwt.decode(credentials.credentials, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
-        tenant_id = payload.get("tenant_id") or payload.get("tenant_uuid")
-        if not tenant_id or payload.get("purpose") != purpose:
-            raise JWTError()
-        payload["tenant_id"] = tenant_id
-        payload["tenant_uuid"] = tenant_id
-        tenant_uuid_context.set(tenant_id)
-        return payload
-    except JWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-
-def get_current_user_claims(credentials: HTTPAuthorizationCredentials = Depends(security_bearer)) -> dict:
-    return get_claims_for_purpose("access", credentials)
-
-
-def get_reset_claims(credentials: HTTPAuthorizationCredentials = Depends(security_bearer)) -> dict:
-    return get_claims_for_purpose("first_login_reset", credentials)
-
-
-def get_tenant_uuid(credentials: HTTPAuthorizationCredentials = Depends(security_bearer)) -> str:
-    claims = get_current_user_claims(credentials)
-    return claims["tenant_id"]
-
-
-
-def build_login_response(token_key: str, token: str, tenant_id: str, tenant_name: str, role: str, email: str, is_first_login: bool):
-    data = {
-        "access_token": None,
-        "reset_token": None,
-        "token_type": "bearer",
-        "tenant_id": tenant_id,
-        "tenant_uuid": tenant_id,
-        "tenant_name": tenant_name,
-        "role": role,
-        "email": email,
-        "is_first_login": is_first_login
-    }
-    data[token_key] = token
-    return LoginResponse(**data)
-
-
-@router.post("/login", response_model=LoginResponse)
-@limiter.limit("10/minute")
-async def login(request: Request, payload: LoginRequest):
-    username = payload.username.strip()
-    password = payload.password
-    tenant = payload.tenant.strip()
-    if not username or not password:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Fields 'username' and 'password' are required.")
-    conn = get_conn()
+def login_user(conn, username: str, password: str, tenant: str) -> Dict[str, Any]:
     cursor = conn.cursor()
     if tenant:
         cursor.execute("SELECT tenant_id, name FROM tenants WHERE lower(name) = lower(?)", (tenant,))
         tenant_row = cursor.fetchone()
         if not tenant_row:
-            conn.close()
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=INVITE_DENIED_MESSAGE)
         tenant_id = tenant_row["tenant_id"]
         cursor.execute(
@@ -302,7 +160,6 @@ async def login(request: Request, payload: LoginRequest):
         )
         user_row = cursor.fetchone()
         if not user_row:
-            conn.close()
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=INVITE_DENIED_MESSAGE)
         tenant_name = tenant_row["name"]
     else:
@@ -312,19 +169,16 @@ async def login(request: Request, payload: LoginRequest):
         )
         user_row = cursor.fetchone()
         if not user_row:
-            conn.close()
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=INVITE_DENIED_MESSAGE)
         tenant_id = user_row["tenant_id"]
         cursor.execute("SELECT name FROM tenants WHERE tenant_id = ?", (tenant_id,))
         tenant_row = cursor.fetchone()
         tenant_name = tenant_row["name"] if tenant_row else ""
     if not pwd_context.verify(password, user_row["password"]):
-        conn.close()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication failed. Invalid username or password.")
     requires_reset = int(user_row["requires_password_reset"] or 0) == 1 or int(user_row["is_first_login"]) == 1
     if requires_reset:
         reset_token = create_token(user_row["username"], user_row["email"], tenant_id, user_row["role"], "first_login_reset", RESET_TOKEN_EXPIRE_MINUTES)
-        conn.close()
         raise HTTPException(
             status_code=428,
             detail={
@@ -341,28 +195,24 @@ async def login(request: Request, payload: LoginRequest):
         (datetime.utcnow().isoformat(), user_row["email"], tenant_id)
     )
     conn.commit()
-    conn.close()
     access_token = create_token(user_row["username"], user_row["email"], tenant_id, user_row["role"], "access", ACCESS_TOKEN_EXPIRE_MINUTES)
-    return build_login_response("access_token", access_token, tenant_id, tenant_name, user_row["role"], user_row["email"], False)
+    return {
+        "token_key": "access_token",
+        "token": access_token,
+        "tenant_id": tenant_id,
+        "tenant_name": tenant_name,
+        "role": user_row["role"],
+        "email": user_row["email"],
+        "is_first_login": False
+    }
 
-
-@router.post("/register", response_model=LoginResponse)
-async def register_tenant(payload: RegisterRequest):
-    tenant = payload.tenant.strip()
-    username = payload.username.strip()
-    email = payload.email.strip().lower()
-    password = payload.password
-    if not tenant or not username or not email or not password:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="All fields are required.")
-    conn = get_conn()
+def register_user(conn, tenant: str, username: str, email: str, password: str) -> Dict[str, Any]:
     cursor = conn.cursor()
     cursor.execute("SELECT tenant_id FROM tenants WHERE lower(name) = lower(?)", (tenant,))
     if cursor.fetchone():
-        conn.close()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Workspace name is already registered.")
     cursor.execute("SELECT email FROM users WHERE lower(email) = lower(?)", (email,))
     if cursor.fetchone():
-        conn.close()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email address is already registered.")
     tenant_id = str(uuid.uuid4())
     now = datetime.utcnow().isoformat()
@@ -372,25 +222,28 @@ async def register_tenant(payload: RegisterRequest):
         (email, username, pwd_context.hash(password), tenant_id, tenant_id, "Tenant_Admin", now)
     )
     conn.commit()
-    conn.close()
     access_token = create_token(username, email, tenant_id, "Tenant_Admin", "access", ACCESS_TOKEN_EXPIRE_MINUTES)
-    return build_login_response("access_token", access_token, tenant_id, tenant, "Tenant_Admin", email, False)
+    return {
+        "token_key": "access_token",
+        "token": access_token,
+        "tenant_id": tenant_id,
+        "tenant_name": tenant,
+        "role": "Tenant_Admin",
+        "email": email,
+        "is_first_login": False
+    }
 
-
-@router.post("/invite", response_model=InviteResponse)
-async def invite_user(payload: InviteRequest, claims: dict = Depends(get_current_user_claims)):
+async def invite_teammate(conn, email: str, name: str, role: str, claims: dict) -> Dict[str, Any]:
     if claims.get("role") not in ("Tenant_Admin", "Super_Admin"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only workspace administrators can invite team members.")
-    invite_email = payload.email.strip().lower()
-    invite_name = payload.name.strip()
-    invite_role = payload.role
+    invite_email = email.strip().lower()
+    invite_name = name.strip()
+    invite_role = role
     if not invite_role or len(invite_role) > 64 or not invite_role.replace("_", "").replace("-", "").replace(" ", "").isalnum():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid workspace role requested.")
-    conn = get_conn()
     cursor = conn.cursor()
     cursor.execute("SELECT email FROM users WHERE lower(email) = lower(?)", (invite_email,))
     if cursor.fetchone():
-        conn.close()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A user with this email address already exists.")
     alphabet = string.ascii_letters + string.digits + "!@#$%"
     temp_password = "".join(secrets.choice(alphabet) for _ in range(14))
@@ -402,8 +255,6 @@ async def invite_user(payload: InviteRequest, claims: dict = Depends(get_current
     cursor.execute("SELECT name FROM tenants WHERE tenant_id = ?", (tenant_id,))
     tenant_name_row = cursor.fetchone()
     conn.commit()
-    conn.close()
-    tenant_name = tenant_name_row["name"] if tenant_name_row else "your workspace"
     n8n_webhook_url = os.getenv("N8N_WEBHOOK_URL", "https://aditya546shah.app.n8n.cloud/webhook/user-onboarding")
     email_sent = False
     email_error = None
@@ -422,41 +273,42 @@ async def invite_user(payload: InviteRequest, claims: dict = Depends(get_current
                 email_error = res.text
     except Exception as exc:
         email_error = str(exc)
-    return InviteResponse(email=invite_email, name=invite_name, role=invite_role, temp_password="", email_sent=email_sent, email_error=email_error)
+    return {
+        "email": invite_email,
+        "name": invite_name,
+        "role": invite_role,
+        "temp_password": "",
+        "email_sent": email_sent,
+        "email_error": email_error
+    }
 
-
-@router.post("/reset-password", response_model=LoginResponse)
-async def reset_password(payload: ResetPasswordRequest, claims: dict = Depends(get_reset_claims)):
-    new_password = payload.new_password
+def reset_user_password(conn, new_password: str, claims: dict) -> Dict[str, Any]:
     if not new_password or len(new_password) < 8:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Password must be at least 8 characters.")
     tenant_id = claims["tenant_id"]
     email = claims["email"]
-    conn = get_conn()
     cursor = conn.cursor()
     cursor.execute(
         "UPDATE users SET password = ?, is_first_login = 0, requires_password_reset = 0, last_login_at = ? WHERE email = ? AND tenant_id = ? AND (is_first_login = 1 OR requires_password_reset = 1)",
         (pwd_context.hash(new_password), datetime.utcnow().isoformat(), email, tenant_id)
     )
     if cursor.rowcount != 1:
-        conn.close()
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Password reset is not available for this account.")
     cursor.execute("SELECT name FROM tenants WHERE tenant_id = ?", (tenant_id,))
     tenant_row = cursor.fetchone()
     conn.commit()
-    conn.close()
     access_token = create_token(claims["sub"], email, tenant_id, claims["role"], "access", ACCESS_TOKEN_EXPIRE_MINUTES)
-    return build_login_response("access_token", access_token, tenant_id, tenant_row["name"] if tenant_row else "", claims["role"], email, False)
+    return {
+        "token_key": "access_token",
+        "token": access_token,
+        "tenant_id": tenant_id,
+        "tenant_name": tenant_row["name"] if tenant_row else "",
+        "role": claims["role"],
+        "email": email,
+        "is_first_login": False
+    }
 
-
-@router.post("/google", response_model=LoginResponse)
-async def google_auth(payload: GoogleAuthRequest):
-    email = payload.email.strip().lower()
-    name = payload.name.strip()
-    google_id = payload.google_id.strip()
-    if not email or not name or not google_id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Google account details are missing.")
-    conn = get_conn()
+def authenticate_google(conn, email: str, name: str, google_id: str) -> Dict[str, Any]:
     cursor = conn.cursor()
     cursor.execute("SELECT email, username, tenant_id, role, is_first_login FROM users WHERE lower(email) = lower(?)", (email,))
     user_row = cursor.fetchone()
@@ -483,33 +335,31 @@ async def google_auth(payload: GoogleAuthRequest):
         username = name
         role = "Tenant_Admin"
     conn.commit()
-    conn.close()
     access_token = create_token(username, email, tenant_id, role, "access", ACCESS_TOKEN_EXPIRE_MINUTES)
-    return build_login_response("access_token", access_token, tenant_id, tenant_name, role, email, False)
+    return {
+        "token_key": "access_token",
+        "token": access_token,
+        "tenant_id": tenant_id,
+        "tenant_name": tenant_name,
+        "role": role,
+        "email": email,
+        "is_first_login": False
+    }
 
-
-@router.post("/google-login", response_model=LoginResponse)
-async def google_login(payload: GoogleLoginRequest):
-    return await google_auth(GoogleAuthRequest(email=payload.email, name=payload.name, google_id="mock_legacy_google_id"))
-
-
-@router.get("/users", response_model=List[UserRecordResponse])
-async def list_users(claims: dict = Depends(get_current_user_claims)):
-    conn = get_conn()
+def get_workspace_users(conn, tenant_id: str) -> List[Dict[str, Any]]:
     cursor = conn.cursor()
     cursor.execute(
         "SELECT username, email, role, is_first_login, google_linked, last_login_at FROM users WHERE tenant_id = ?",
-        (claims["tenant_id"],)
+        (tenant_id,)
     )
     rows = cursor.fetchall()
-    conn.close()
     return [
-        UserRecordResponse(
-            name=row["username"],
-            email=row["email"],
-            role=row["role"],
-            status="Active" if int(row["is_first_login"]) == 0 or int(row["google_linked"]) == 1 else "Inactive",
-            last_login=row["last_login_at"] or "Never logged in"
-        )
+        {
+            "name": row["username"],
+            "email": row["email"],
+            "role": row["role"],
+            "status": "Active" if int(row["is_first_login"]) == 0 or int(row["google_linked"]) == 1 else "Inactive",
+            "last_login": row["last_login_at"] or "Never logged in"
+        }
         for row in rows
     ]
