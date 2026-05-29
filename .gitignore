@@ -49,5 +49,11 @@ venv/
 node_modules/
 *.node
 
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+
 # Uploads directory
-backend/uploads/
+backend/uploads/*
+!backend/uploads/.gitkeep
