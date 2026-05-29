@@ -19,6 +19,22 @@ class LoginResponse(BaseModel):
     email: str
     is_first_login: bool
 
+    @classmethod
+    def from_result(cls, result: dict) -> "LoginResponse":
+        data = {
+            "access_token": None,
+            "reset_token": None,
+            "token_type": "bearer",
+            "tenant_id": result["tenant_id"],
+            "tenant_uuid": result["tenant_id"],
+            "tenant_name": result["tenant_name"],
+            "role": result["role"],
+            "email": result["email"],
+            "is_first_login": result["is_first_login"]
+        }
+        data[result["token_key"]] = result["token"]
+        return cls(**data)
+
 class RegisterRequest(BaseModel):
     """Request model for tenant registration."""
     tenant: str
