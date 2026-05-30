@@ -106,7 +106,7 @@ def extract_records_generator(
     auth_token = auth_config.get("authToken", "")
     headers = get_auth_headers(auth_type, auth_token, custom_headers)
     logger.info(
-        f"Extractor auth resolved: type={auth_type!r}"
+        "Extractor auth resolved securely."
     )
 
     limits = httpx.Limits(max_keepalive_connections=5, max_connections=10)
