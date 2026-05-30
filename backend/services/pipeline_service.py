@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import uuid
 from datetime import datetime
 from typing import Any, Dict, List
@@ -198,10 +199,13 @@ class PipelineService:
         self.read_tenant_row("connections", id)
         if not code:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing code field.")
-        drivers_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "auth_drivers")
+        if not re.match(r"^[\w\-]+$", id):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid ID format.")
+        drivers_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(__file__)), "auth_drivers"))
         os.makedirs(drivers_dir, exist_ok=True)
-        safe_id = os.path.basename(id)
-        driver_path = os.path.join(drivers_dir, f"{safe_id}_auth_driver.py")
+        driver_path = os.path.abspath(os.path.join(drivers_dir, f"{id}_auth_driver.py"))
+        if not driver_path.startswith(drivers_dir):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Path traversal detected.")
         with open(driver_path, "w", encoding="utf-8") as f:
             f.write(code)
         return {"status": "success", "message": "Auth driver saved successfully."}
