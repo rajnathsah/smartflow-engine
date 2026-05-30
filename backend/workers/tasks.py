@@ -339,7 +339,8 @@ def load_custom_auth_token(connection_id: str, auth_config: dict) -> str:
     import importlib.util
     import os
     drivers_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "auth_drivers")
-    driver_path = os.path.join(drivers_dir, f"{connection_id}_auth_driver.py")
+    safe_connection_id = os.path.basename(connection_id)
+    driver_path = os.path.join(drivers_dir, f"{safe_connection_id}_auth_driver.py")
     if not os.path.exists(driver_path):
         return auth_config.get("authToken", "")
     spec = importlib.util.spec_from_file_location(f"dynamic_auth_{connection_id}", driver_path)

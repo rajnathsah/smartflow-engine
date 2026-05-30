@@ -154,8 +154,6 @@ export const TargetConfigForm: React.FC<TargetConfigFormProps> = ({
   }
 
   const onFormSubmit = (data: TargetFormData) => {
-    console.log('Form Data Submitted:', data)
-
     const payload: TargetFormData = {
       targetDb: data.targetDb,
       host: data.host.trim(),
@@ -170,7 +168,6 @@ export const TargetConfigForm: React.FC<TargetConfigFormProps> = ({
       pemKeyContent: data.pemKeyContent || '',
     }
 
-    console.log(payload)
     onSubmitTargetConfig?.(payload)
     setSuccess(true)
     setTimeout(() => {

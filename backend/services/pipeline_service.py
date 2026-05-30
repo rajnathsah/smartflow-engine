@@ -200,7 +200,8 @@ class PipelineService:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing code field.")
         drivers_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "auth_drivers")
         os.makedirs(drivers_dir, exist_ok=True)
-        driver_path = os.path.join(drivers_dir, f"{id}_auth_driver.py")
+        safe_id = os.path.basename(id)
+        driver_path = os.path.join(drivers_dir, f"{safe_id}_auth_driver.py")
         with open(driver_path, "w", encoding="utf-8") as f:
             f.write(code)
         return {"status": "success", "message": "Auth driver saved successfully."}
