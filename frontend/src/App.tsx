@@ -1,5 +1,4 @@
-import React, { useState, useEffect } from 'react'
-import axios from 'axios'
+import React, { useReducer, useEffect, Suspense } from 'react'
 import {
   Routes,
   Route,
@@ -12,10 +11,6 @@ import {
   Database,
   Activity,
   LogOut,
-  Plus,
-  CheckCircle2,
-  AlertCircle,
-  Sliders,
   ShieldCheck,
   Users,
   Shield,
@@ -26,27 +21,105 @@ import {
   Network,
   BookOpen,
   Sun,
-  Moon
+  Moon,
+  Sliders
 } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { usePipelineStore } from '@/store/pipelineStore'
 import type { Pipeline, ActivityLog, Source, Destination } from '@/types'
-import { PipelinesTable } from '@/components/PipelinesTable'
 import { CreatePipelineForm } from '@/components/CreatePipelineForm'
 import { CreateSourceForm } from '@/components/CreateSourceForm'
 import { CreateDestinationForm } from '@/components/CreateDestinationForm'
-import { UsersTable } from '@/components/UsersTable'
-import { RoleBuilder } from '@/components/RoleBuilder'
-import { Login } from '@/components/Login'
 import { ProtectedRoute } from '@/components/ProtectedRoute'
-import { LiveDashboard } from '@/components/LiveDashboard'
-import { MappingCanvas } from '@/components/MappingCanvas'
-import { RAGPanel } from '@/components/RAGPanel'
 import { Toaster } from 'sonner'
 import { hasPermission } from '@/lib/permissions'
+import apiClient from '@/api/client'
+import { handleAPIError } from '@/utils/errors'
+import { usePipelinePolling } from '@/hooks/usePipelinePolling'
+
+const OverviewPanel = React.lazy(() => import('@/pages/OverviewPanel'))
+const PipelinesPanel = React.lazy(() => import('@/pages/PipelinesPanel'))
+const SourcesPanel = React.lazy(() => import('@/pages/SourcesPanel'))
+const DestinationsPanel = React.lazy(() => import('@/pages/DestinationsPanel'))
+
+const LiveDashboard = React.lazy(() => import('@/components/LiveDashboard').then(m => ({ default: m.LiveDashboard })))
+const MappingCanvas = React.lazy(() => import('@/components/MappingCanvas').then(m => ({ default: m.MappingCanvas })))
+const RAGPanel = React.lazy(() => import('@/components/RAGPanel').then(m => ({ default: m.RAGPanel })))
+const UsersTable = React.lazy(() => import('@/components/UsersTable').then(m => ({ default: m.UsersTable })))
+const RoleBuilder = React.lazy(() => import('@/components/RoleBuilder').then(m => ({ default: m.RoleBuilder })))
+const Login = React.lazy(() => import('@/components/Login').then(m => ({ default: m.Login })))
+
+interface DashboardState {
+  logs: ActivityLog[]
+  isLoading: boolean
+  triggeringId: string | null
+  isDrawerOpen: boolean
+  isSourceDrawerOpen: boolean
+  isDestinationDrawerOpen: boolean
+  isSidebarCollapsed: boolean
+}
+
+type DashboardAction =
+  | { type: 'SET_LOADING'; payload: boolean }
+  | { type: 'SET_TRIGGERING_ID'; payload: string | null }
+  | { type: 'TOGGLE_DRAWER'; payload: boolean }
+  | { type: 'TOGGLE_SOURCE_DRAWER'; payload: boolean }
+  | { type: 'TOGGLE_DESTINATION_DRAWER'; payload: boolean }
+  | { type: 'TOGGLE_SIDEBAR'; payload?: boolean }
+  | { type: 'ADD_LOG'; payload: ActivityLog }
+  | { type: 'SET_LOGS'; payload: ActivityLog[] }
+
+const initialState: DashboardState = {
+  logs: [],
+  isLoading: true,
+  triggeringId: null,
+  isDrawerOpen: false,
+  isSourceDrawerOpen: false,
+  isDestinationDrawerOpen: false,
+  isSidebarCollapsed: false
+}
+
+function dashboardReducer(state: DashboardState, action: DashboardAction): DashboardState {
+  switch (action.type) {
+    case 'SET_LOADING':
+      return { ...state, isLoading: action.payload }
+    case 'SET_TRIGGERING_ID':
+      return { ...state, triggeringId: action.payload }
+    case 'TOGGLE_DRAWER':
+      return { ...state, isDrawerOpen: action.payload }
+    case 'TOGGLE_SOURCE_DRAWER':
+      return { ...state, isSourceDrawerOpen: action.payload }
+    case 'TOGGLE_DESTINATION_DRAWER':
+      return { ...state, isDestinationDrawerOpen: action.payload }
+    case 'TOGGLE_SIDEBAR':
+      return { ...state, isSidebarCollapsed: action.payload ?? !state.isSidebarCollapsed }
+    case 'ADD_LOG':
+      return { ...state, logs: [action.payload, ...state.logs] }
+    case 'SET_LOGS':
+      return { ...state, logs: action.payload }
+    default:
+      return state
+  }
+}
+
+const PageLoader = () => (
+  <div className="flex items-center justify-center h-full w-full">
+    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-text-primary"></div>
+  </div>
+)
+
+const totalVolumeFormat = (num: number): string => {
+  if (num >= 1000000) {
+    return (num / 1000000).toFixed(1) + 'M'
+  }
+  if (num >= 1000) {
+    return (num / 1000).toFixed(1) + 'K'
+  }
+  return num.toString()
+}
 
 const DashboardLayout = () => {
-  const { activeTenant, logout, token, theme, toggleTheme, role, email } = useAuthStore()
+  const { activeTenant, logout, theme, toggleTheme, role, email } = useAuthStore()
   const {
     pipelines,
     sources,
@@ -61,19 +134,11 @@ const DashboardLayout = () => {
   const location = useLocation()
   const navigate = useNavigate()
 
-  const [logs, setLogs] = useState<ActivityLog[]>([])
+  const [state, dispatch] = useReducer(dashboardReducer, initialState)
 
-  const [isLoading, setIsLoading] = useState(true)
-  const [triggeringId, setTriggeringId] = useState<string | null>(null)
-  const [isDrawerOpen, setIsDrawerOpen] = useState(false)
-  const [isSourceDrawerOpen, setIsSourceDrawerOpen] = useState(false)
-  const [isDestinationDrawerOpen, setIsDestinationDrawerOpen] = useState(false)
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
-
-  // Simulate loader state on mount to show off skeleton layout
   useEffect(() => {
     const timer = setTimeout(() => {
-      setIsLoading(false)
+      dispatch({ type: 'SET_LOADING', payload: false })
     }, 1200)
     return () => clearTimeout(timer)
   }, [])
@@ -87,29 +152,28 @@ const DashboardLayout = () => {
     navigate('/login')
   }
 
-  // Trigger pipeline sync via backend API
   const handleTriggerSync = async (id: string) => {
     const pipeline = getPipelineById(id)
     if (!pipeline) {
       return
     }
 
-    setTriggeringId(id)
+    dispatch({ type: 'SET_TRIGGERING_ID', payload: id })
     updatePipeline(id, { status: 'syncing' })
     
     const startTime = new Date().toLocaleTimeString('en-US', { hour12: false })
     const startLogId = String(Date.now())
     
-    setLogs(prev => [
-      {
+    dispatch({
+      type: 'ADD_LOG',
+      payload: {
         id: startLogId,
         time: startTime,
-        event: `Manual execution trigger: ${pipeline?.name}`,
+        event: `Manual execution trigger: ${pipeline.name}`,
         status: 'info',
         detail: 'Dispatched Celery worker job extraction queue...'
-      },
-      ...prev
-    ])
+      }
+    })
 
     try {
       const schemaMapping = pipeline.schemaMapping ?? []
@@ -129,13 +193,9 @@ const DashboardLayout = () => {
         enableSshBastion: pipeline.enableSshBastion,
       }
 
-      console.log(`Sync Now clicked for pipeline ${id}`)
-      console.log('Sync payload:', syncPayload)
-
-      const response = await axios.post(
+      const response = await apiClient.post(
         `/api/v1/pipelines/${id}/sync`,
-        syncPayload,
-        { headers: { Authorization: `Bearer ${token}` } }
+        syncPayload
       )
       const taskId = response.data?.task_id
 
@@ -145,8 +205,9 @@ const DashboardLayout = () => {
       })
 
       const endTime = new Date().toLocaleTimeString('en-US', { hour12: false })
-      setLogs(prev => [
-        {
+      dispatch({
+        type: 'ADD_LOG',
+        payload: {
           id: String(Date.now()),
           time: endTime,
           event: `Sync dispatched: ${pipeline.name}`,
@@ -154,97 +215,58 @@ const DashboardLayout = () => {
           detail: taskId
             ? `Backend accepted sync request. Task ID: ${taskId}`
             : 'Backend accepted sync request.'
-        },
-        ...prev
-      ])
+        }
+      })
     } catch (error) {
-      const message = axios.isAxiosError(error)
-        ? error.response?.data?.detail || error.message
-        : 'Unknown sync request failure.'
-
+      const apiErr = handleAPIError(error)
       updatePipeline(id, { status: 'failed', taskId: undefined })
 
       const endTime = new Date().toLocaleTimeString('en-US', { hour12: false })
-      setLogs(prev => [
-        {
+      dispatch({
+        type: 'ADD_LOG',
+        payload: {
           id: String(Date.now()),
           time: endTime,
           event: `Sync failed: ${pipeline.name}`,
           status: 'failed',
-          detail: String(message)
-        },
-        ...prev
-      ])
+          detail: apiErr.detail || apiErr.message
+        }
+      })
     } finally {
-      setTriggeringId(null)
+      dispatch({ type: 'SET_TRIGGERING_ID', payload: null })
     }
   }
 
-  // Polling for active sync tasks
-  useEffect(() => {
-    const activeSyncPipelines = pipelines.filter(p => p.status === 'syncing' && p.taskId)
-    if (activeSyncPipelines.length === 0) return
-
-    const pollInterval = setInterval(async () => {
-      for (const pipeline of activeSyncPipelines) {
-        if (!pipeline.taskId) continue
-        try {
-          const response = await axios.get(
-            `/api/v1/pipelines/tasks/${pipeline.taskId}`,
-            { headers: { Authorization: `Bearer ${token}` } }
-          )
-          const { status, result, error } = response.data
-          
-          if (status === 'SUCCESS') {
-            const recordsSynced = Number(result?.records_synced ?? 0)
-            updatePipeline(pipeline.id, {
-              status: 'active',
-              recordsSynced: recordsSynced,
-              lastSync: 'Just now',
-              taskId: undefined
-            })
-            const endTime = new Date().toLocaleTimeString('en-US', { hour12: false })
-            setLogs(prev => [
-              {
-                id: String(Date.now()),
-                time: endTime,
-                event: `Sync completed: ${pipeline.name}`,
-                status: 'success',
-                detail: `Successfully processed and inserted ${recordsSynced.toLocaleString()} records.`
-              },
-              ...prev
-            ])
-          } else if (status === 'FAILURE' || status === 'REVOKED') {
-            updatePipeline(pipeline.id, {
-              status: 'failed',
-              taskId: undefined
-            })
-            const endTime = new Date().toLocaleTimeString('en-US', { hour12: false })
-            setLogs(prev => [
-              {
-                id: String(Date.now()),
-                time: endTime,
-                event: `Sync failed: ${pipeline.name}`,
-                status: 'failed',
-                detail: error || `Celery task execution ended with status: ${status}`
-              },
-              ...prev
-            ])
-          }
-        } catch (err) {
-          console.error(`Error polling task status for pipeline ${pipeline.id}:`, err)
-          if (axios.isAxiosError(err) && err.response?.status === 404) {
-            updatePipeline(pipeline.id, {
-              status: 'failed',
-              taskId: undefined
-            })
-          }
+  usePipelinePolling({
+    pipelines,
+    updatePipeline,
+    onSuccess: (pipeline, recordsSynced) => {
+      const endTime = new Date().toLocaleTimeString('en-US', { hour12: false })
+      dispatch({
+        type: 'ADD_LOG',
+        payload: {
+          id: String(Date.now()),
+          time: endTime,
+          event: `Sync completed: ${pipeline.name}`,
+          status: 'success',
+          detail: `Successfully processed and inserted ${recordsSynced.toLocaleString()} records.`
         }
-      }
-    }, 2000)
-
-    return () => clearInterval(pollInterval)
-  }, [pipelines, updatePipeline, setLogs])
+      })
+    },
+    onFailure: (pipeline, errorMsg) => {
+      const endTime = new Date().toLocaleTimeString('en-US', { hour12: false })
+      dispatch({
+        type: 'ADD_LOG',
+        payload: {
+          id: String(Date.now()),
+          time: endTime,
+          event: `Sync failed: ${pipeline.name}`,
+          status: 'failed',
+          detail: errorMsg
+        }
+      })
+    }
+  })
 
   const handleAddPipeline = (data: Omit<Pipeline, 'id' | 'status' | 'lastSync' | 'recordsSynced' | 'schemaMapping'>) => {
     const newPipeline: Pipeline = {
@@ -256,24 +278,24 @@ const DashboardLayout = () => {
       schemaMapping: []
     }
 
-    setIsLoading(true)
+    dispatch({ type: 'SET_LOADING', payload: true })
     
     setTimeout(() => {
       addPipeline(newPipeline)
       
       const currentTime = new Date().toLocaleTimeString('en-US', { hour12: false })
-      setLogs(prev => [
-        {
+      dispatch({
+        type: 'ADD_LOG',
+        payload: {
           id: String(Date.now()),
           time: currentTime,
           event: `Pipeline Provisioned: ${newPipeline.name}`,
           status: 'success',
           detail: `Mapped API endpoint to target: ${newPipeline.targetDbName} (${newPipeline.targetDbDialect})`
-        },
-        ...prev
-      ])
+        }
+      })
       
-      setIsLoading(false)
+      dispatch({ type: 'SET_LOADING', payload: false })
     }, 800)
   }
 
@@ -293,7 +315,6 @@ const DashboardLayout = () => {
     addDestination(newDestination)
   }
 
-  // Dynamically calculate metrics from current Pipelines State
   const activePipelines = pipelines.filter(p => p.status === 'active' || p.status === 'syncing').length
   const totalRecords = pipelines.reduce((sum, p) => sum + p.recordsSynced, 0)
   const averageLatency = pipelines.length > 0 ? 120 + pipelines.length * 8 : 0
@@ -315,7 +336,7 @@ const DashboardLayout = () => {
 
   return (
     <div className="flex h-screen bg-background text-text-primary font-sans overflow-hidden">
-      <aside className={`${isSidebarCollapsed ? 'w-16' : 'w-64'} transition-all duration-300 border-r border-border-primary bg-panel flex flex-col justify-between shrink-0`}>
+      <aside className={`${state.isSidebarCollapsed ? 'w-16' : 'w-64'} transition-all duration-300 border-r border-border-primary bg-panel flex flex-col justify-between shrink-0`}>
         <div>
           <div className="h-16 flex items-center justify-between px-4 border-b border-border-primary">
             <div className="flex items-center gap-3 overflow-hidden">
@@ -329,20 +350,21 @@ const DashboardLayout = () => {
                       strokeLinejoin="miter" />
                 <rect x="62" y="44" width="12" height="12" fill="#ffffff" />
               </svg>
-              {!isSidebarCollapsed && (
+              {!state.isSidebarCollapsed && (
                 <span className="font-semibold text-sm tracking-wider uppercase truncate">synq.to</span>
               )}
             </div>
             <button 
-              onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+              onClick={() => dispatch({ type: 'TOGGLE_SIDEBAR' })}
               className="p-1.5 rounded hover:bg-text-primary/5 text-text-muted hover:text-text-primary transition-colors cursor-pointer"
+              aria-label={state.isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
             >
-              {isSidebarCollapsed ? <Menu className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+              {state.isSidebarCollapsed ? <Menu className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
             </button>
           </div>
 
           <div className="p-4 border-b border-border-primary">
-            {isSidebarCollapsed ? (
+            {state.isSidebarCollapsed ? (
               <div className="flex justify-center">
                 <ShieldCheck className="h-4.5 w-4.5 text-emerald-500" />
               </div>
@@ -369,21 +391,22 @@ const DashboardLayout = () => {
                   key={item.path}
                   to={item.path}
                   className={`flex items-center rounded text-sm transition-all duration-150 ${
-                    isSidebarCollapsed ? 'justify-center p-2' : 'gap-3 px-3 py-2'
+                    state.isSidebarCollapsed ? 'justify-center p-2' : 'gap-3 px-3 py-2'
                   } ${
                     isActive
                       ? 'bg-text-primary/10 text-text-primary font-medium border border-border-primary'
                       : 'text-text-secondary hover:text-text-primary hover:bg-text-primary/5 border border-transparent'
                   }`}
-                  title={isSidebarCollapsed ? item.label : undefined}
+                  title={state.isSidebarCollapsed ? item.label : undefined}
+                  aria-label={item.label}
                 >
                   <Icon className="h-4.5 w-4.5 shrink-0" />
-                  {!isSidebarCollapsed && <span>{item.label}</span>}
+                  {!state.isSidebarCollapsed && <span>{item.label}</span>}
                 </Link>
               )
             })}
 
-            {!isSidebarCollapsed ? (
+            {!state.isSidebarCollapsed ? (
               <div className="pt-4 pb-1.5 px-3">
                 <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider">Access Control</span>
               </div>
@@ -398,16 +421,17 @@ const DashboardLayout = () => {
                   key={item.path}
                   to={item.path}
                   className={`flex items-center rounded text-sm transition-all duration-150 ${
-                    isSidebarCollapsed ? 'justify-center p-2' : 'gap-3 px-3 py-2'
+                    state.isSidebarCollapsed ? 'justify-center p-2' : 'gap-3 px-3 py-2'
                   } ${
                     isActive
                       ? 'bg-text-primary/10 text-text-primary font-medium border border-border-primary'
                       : 'text-text-secondary hover:text-text-primary hover:bg-text-primary/5 border border-transparent'
                   }`}
-                  title={isSidebarCollapsed ? item.label : undefined}
+                  title={state.isSidebarCollapsed ? item.label : undefined}
+                  aria-label={item.label}
                 >
                   <Icon className="h-4.5 w-4.5 shrink-0" />
-                  {!isSidebarCollapsed && <span>{item.label}</span>}
+                  {!state.isSidebarCollapsed && <span>{item.label}</span>}
                 </Link>
               )
             })}
@@ -415,7 +439,7 @@ const DashboardLayout = () => {
         </div>
 
         <div className="p-3 border-t border-border-primary bg-panel-card/30">
-          {isSidebarCollapsed ? (
+          {state.isSidebarCollapsed ? (
             <div className="flex flex-col items-center gap-2">
               <div className="h-6 w-6 rounded-full bg-panel flex items-center justify-center text-[10px] font-bold border border-border-primary">
                 {(email || 'U')[0].toUpperCase()}
@@ -424,6 +448,7 @@ const DashboardLayout = () => {
                 onClick={handleLogout}
                 className="p-2 border border-border-primary bg-background hover:bg-text-primary/5 text-text-secondary hover:text-text-primary rounded transition-all cursor-pointer"
                 title="Sign Out"
+                aria-label="Sign Out"
               >
                 <LogOut className="h-3.5 w-3.5" />
               </button>
@@ -442,6 +467,7 @@ const DashboardLayout = () => {
               <button
                 onClick={handleLogout}
                 className="w-full flex items-center justify-center gap-2 px-3 py-2 border border-border-primary bg-background hover:bg-text-primary/5 text-text-secondary hover:text-text-primary rounded text-xs transition-all cursor-pointer"
+                aria-label="Sign Out"
               >
                 <LogOut className="h-3.5 w-3.5" />
                 Sign Out
@@ -451,10 +477,7 @@ const DashboardLayout = () => {
         </div>
       </aside>
 
-      {/* Main content core container */}
       <div className="flex-1 flex flex-col min-w-0">
-        
-        {/* Top Header layout */}
         <header className="h-16 border-b border-border-primary flex items-center justify-between px-8 bg-panel-card/10">
           <div className="flex items-center gap-3">
             <h1 className="text-sm font-semibold tracking-tight text-text-primary capitalize">
@@ -466,6 +489,7 @@ const DashboardLayout = () => {
               onClick={toggleTheme}
               className="p-2 border border-border-primary bg-panel hover:bg-text-primary/5 text-text-secondary hover:text-text-primary rounded-lg transition-all cursor-pointer flex items-center justify-center"
               title={theme === 'light' ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
+              aria-label={theme === 'light' ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
             >
               {theme === 'light' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
             </button>
@@ -476,214 +500,83 @@ const DashboardLayout = () => {
           </div>
         </header>
 
-        {/* Routing View Render */}
         <main className="flex-1 overflow-y-auto p-8">
-          <Routes>
-            <Route
-              path="dashboard"
-              element={
-                <OverviewPanel
-                  activeCount={activePipelines}
-                  totalCount={pipelines.length}
-                  totalVolume={totalVolumeFormat(totalRecords)}
-                  latency={pipelines.length > 0 ? `${averageLatency}ms` : '0ms'}
-                  logs={logs}
-                />
-              }
-            />
-            <Route
-              path="sources"
-              element={
-                <SourcesPanel
-                  sources={sources}
-                  onCreateClick={() => setIsSourceDrawerOpen(true)}
-                  canWrite={hasPermission(role, 'pipelines:write', activeTenant)}
-                />
-              }
-            />
-            <Route
-              path="destinations"
-              element={
-                <DestinationsPanel
-                  destinations={destinations}
-                  onCreateClick={() => setIsDestinationDrawerOpen(true)}
-                  canWrite={hasPermission(role, 'pipelines:write', activeTenant)}
-                />
-              }
-            />
-            <Route
-              path="pipelines"
-              element={
-                <PipelinesPanel
-                  pipelines={pipelines}
-                  isLoading={isLoading}
-                  onTriggerSync={handleTriggerSync}
-                  triggeringId={triggeringId}
-                  onCreateClick={() => setIsDrawerOpen(true)}
-                  canWrite={hasPermission(role, 'pipelines:write', activeTenant)}
-                />
-              }
-            />
-            <Route path="live" element={<LiveDashboard />} />
-            <Route path="mapper" element={<MappingCanvas />} />
-            <Route path="analysis" element={<RAGPanel />} />
-            <Route path="users" element={<UsersTable />} />
-            <Route path="roles" element={<RoleBuilder />} />
-            <Route path="*" element={<Navigate to="dashboard" replace />} />
-          </Routes>
+          <Suspense fallback={<PageLoader />}>
+            <Routes>
+              <Route
+                path="dashboard"
+                element={
+                  <OverviewPanel
+                    activeCount={activePipelines}
+                    totalCount={pipelines.length}
+                    totalVolume={totalVolumeFormat(totalRecords)}
+                    latency={pipelines.length > 0 ? `${averageLatency}ms` : '0ms'}
+                    logs={state.logs}
+                  />
+                }
+              />
+              <Route
+                path="sources"
+                element={
+                  <SourcesPanel
+                    sources={sources}
+                    onCreateClick={() => dispatch({ type: 'TOGGLE_SOURCE_DRAWER', payload: true })}
+                    canWrite={hasPermission(role, 'pipelines:write', activeTenant)}
+                  />
+                }
+              />
+              <Route
+                path="destinations"
+                element={
+                  <DestinationsPanel
+                    destinations={destinations}
+                    onCreateClick={() => dispatch({ type: 'TOGGLE_DESTINATION_DRAWER', payload: true })}
+                    canWrite={hasPermission(role, 'pipelines:write', activeTenant)}
+                  />
+                }
+              />
+              <Route
+                path="pipelines"
+                element={
+                  <PipelinesPanel
+                    pipelines={pipelines}
+                    isLoading={state.isLoading}
+                    onTriggerSync={handleTriggerSync}
+                    triggeringId={state.triggeringId}
+                    onCreateClick={() => dispatch({ type: 'TOGGLE_DRAWER', payload: true })}
+                    canWrite={hasPermission(role, 'pipelines:write', activeTenant)}
+                  />
+                }
+              />
+              <Route path="live" element={<LiveDashboard />} />
+              <Route path="mapper" element={<MappingCanvas />} />
+              <Route path="analysis" element={<RAGPanel />} />
+              <Route path="users" element={<UsersTable />} />
+              <Route path="roles" element={<RoleBuilder />} />
+              <Route path="*" element={<Navigate to="dashboard" replace />} />
+            </Routes>
+          </Suspense>
         </main>
       </div>
 
       <CreatePipelineForm
-        isOpen={isDrawerOpen}
-        onClose={() => setIsDrawerOpen(false)}
+        isOpen={state.isDrawerOpen}
+        onClose={() => dispatch({ type: 'TOGGLE_DRAWER', payload: false })}
         sources={sources}
         destinations={destinations}
         onSubmitPipeline={handleAddPipeline}
       />
 
       <CreateSourceForm
-        isOpen={isSourceDrawerOpen}
-        onClose={() => setIsSourceDrawerOpen(false)}
+        isOpen={state.isSourceDrawerOpen}
+        onClose={() => dispatch({ type: 'TOGGLE_SOURCE_DRAWER', payload: false })}
         onSubmitSource={handleCreateSource}
       />
 
       <CreateDestinationForm
-        isOpen={isDestinationDrawerOpen}
-        onClose={() => setIsDestinationDrawerOpen(false)}
+        isOpen={state.isDestinationDrawerOpen}
+        onClose={() => dispatch({ type: 'TOGGLE_DESTINATION_DRAWER', payload: false })}
         onSubmitDestination={handleCreateDestination}
-      />
-    </div>
-  )
-}
-
-// Convert sync numbers to K/M representations
-const totalVolumeFormat = (num: number): string => {
-  if (num >= 1000000) {
-    return (num / 1000000).toFixed(1) + 'M'
-  }
-  if (num >= 1000) {
-    return (num / 1000).toFixed(1) + 'K'
-  }
-  return num.toString()
-}
-
-// 1. Overview Panel Dashboard Layout
-interface OverviewPanelProps {
-  activeCount: number
-  totalCount: number
-  totalVolume: string
-  latency: string
-  logs: ActivityLog[]
-}
-
-const OverviewPanel: React.FC<OverviewPanelProps> = ({
-  activeCount,
-  totalCount,
-  totalVolume,
-  latency,
-  logs
-}) => {
-  return (
-    <div className="space-y-8 max-w-5xl">
-      <div>
-        <h2 className="text-lg font-semibold tracking-tight text-text-primary">System Status Overview</h2>
-        <p className="text-sm text-text-muted">Dynamic connection latency metrics and pipeline extraction health.</p>
-      </div>
-
-      {/* Overview Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {[
-          { label: 'Active Pipelines', value: `${activeCount} / ${totalCount}`, desc: 'Active synchronized databases' },
-          { label: 'Total Rows Synced', value: totalVolume, desc: 'Aggregated rows transferred' },
-          { label: 'Average Sync Latency', value: latency, desc: 'API query dynamic execution response' },
-        ].map((card, idx) => (
-          <div key={idx} className="bg-panel border border-border-primary p-6 rounded-xl space-y-2.5">
-            <span className="text-xs text-text-muted font-medium uppercase tracking-wider">{card.label}</span>
-            <div className="text-3xl font-light text-text-primary tracking-tight">{card.value}</div>
-            <p className="text-xs text-text-muted">{card.desc}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* Activity Log Section */}
-      <div className="bg-panel border border-border-primary rounded-xl overflow-hidden">
-        <div className="px-6 py-4 border-b border-border-primary flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-text-primary">Engine Activity Log</h3>
-          <span className="text-xs text-text-muted">Dynamically Updated</span>
-        </div>
-        
-        {logs.length === 0 ? (
-          <div className="p-12 text-center text-xs text-text-muted">
-            No recent engine sync activity logged. Trigger a pipeline sync to start tracking operations.
-          </div>
-        ) : (
-          <div className="divide-y divide-border-primary">
-            {logs.map((log) => (
-              <div key={log.id} className="px-6 py-4.5 flex items-center justify-between text-sm hover:bg-panel-card/20 transition-colors">
-                <div className="flex items-center gap-4">
-                  <span className="font-mono text-xs text-text-muted shrink-0">{log.time}</span>
-                  <div>
-                    <div className="font-medium text-text-secondary text-xs">{log.event}</div>
-                    <div className="text-xs text-text-muted mt-0.5">{log.detail}</div>
-                  </div>
-                </div>
-                <div>
-                  {log.status === 'success' && <CheckCircle2 className="h-4 w-4 text-emerald-500" />}
-                  {log.status === 'failed' && <AlertCircle className="h-4 w-4 text-rose-500" />}
-                  {log.status === 'info' && <Sliders className="h-4 w-4 text-text-muted" />}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// 2. Pipelines Panel Controller
-interface PipelinesPanelProps {
-  pipelines: Pipeline[]
-  isLoading: boolean
-  onTriggerSync: (id: string) => void
-  triggeringId: string | null
-  onCreateClick: () => void
-  canWrite: boolean
-}
-
-const PipelinesPanel: React.FC<PipelinesPanelProps> = ({
-  pipelines,
-  isLoading,
-  onTriggerSync,
-  triggeringId,
-  onCreateClick,
-  canWrite
-}) => {
-  return (
-    <div className="space-y-8 max-w-5xl">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-semibold tracking-tight text-text-primary">Data Sync Pipelines</h2>
-          <p className="text-sm text-text-muted">Control extraction execution, verify dials, and provision rules.</p>
-        </div>
-        <button
-          onClick={onCreateClick}
-          disabled={!canWrite}
-          className="flex items-center gap-2 px-3.5 py-2 bg-text-primary text-background font-medium hover:opacity-90 text-xs rounded-lg transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-          title={!canWrite ? 'You do not have permission to create pipelines' : undefined}
-        >
-          <Plus className="h-4 w-4 font-bold" />
-          Create Pipeline
-        </button>
-      </div>
-
-      <PipelinesTable
-        pipelines={pipelines}
-        isLoading={isLoading}
-        onTriggerSync={onTriggerSync}
-        triggeringId={triggeringId}
-        onCreateClick={onCreateClick}
       />
     </div>
   )
@@ -692,7 +585,6 @@ const PipelinesPanel: React.FC<PipelinesPanelProps> = ({
 function App() {
   const { theme } = useAuthStore()
 
-  // Sync document root class with active theme
   useEffect(() => {
     if (theme === 'light') {
       document.documentElement.classList.add('light')
@@ -703,17 +595,19 @@ function App() {
 
   return (
     <>
-      <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route
-          path="/*"
-          element={
-            <ProtectedRoute>
-              <DashboardLayout />
-            </ProtectedRoute>
-          }
-        />
-      </Routes>
+      <Suspense fallback={<PageLoader />}>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route
+            path="/*"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout />
+              </ProtectedRoute>
+            }
+          />
+        </Routes>
+      </Suspense>
       <Toaster
         theme={theme === 'light' ? 'light' : 'dark'}
         position="bottom-right"
@@ -728,164 +622,6 @@ function App() {
         }}
       />
     </>
-  )
-}
-
-interface SourcesPanelProps {
-  sources: Source[]
-  onCreateClick: () => void
-  canWrite: boolean
-}
-
-const SourcesPanel: React.FC<SourcesPanelProps> = ({ sources, onCreateClick, canWrite }) => {
-  return (
-    <div className="space-y-8 max-w-5xl">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-semibold tracking-tight text-text-primary">Data Sources</h2>
-          <p className="text-sm text-text-muted">Register and configure HTTP API sources to extract data from.</p>
-        </div>
-        <button
-          onClick={onCreateClick}
-          disabled={!canWrite}
-          className="flex items-center gap-2 px-3.5 py-2 bg-text-primary text-background font-medium hover:opacity-90 text-xs rounded-lg transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-          title={!canWrite ? 'You do not have permission to create sources' : undefined}
-        >
-          <Plus className="h-4 w-4 font-bold" />
-          Create Source
-        </button>
-      </div>
-
-      {sources.length === 0 ? (
-        <div className="bg-panel border border-border-primary rounded-xl p-16 text-center max-w-5xl mx-auto space-y-5">
-          <div className="flex justify-center">
-            <div className="h-20 w-20 bg-panel-card border border-border-primary rounded-full flex items-center justify-center">
-              <Globe className="h-10 w-10 text-text-muted" />
-            </div>
-          </div>
-          <div className="space-y-2 max-w-sm mx-auto">
-            <h3 className="text-sm font-semibold text-text-primary">No Active Data Sources</h3>
-            <p className="text-xs text-text-muted leading-relaxed">
-              Register REST API data sources to make them available for pipeline connections.
-            </p>
-          </div>
-          <button
-            onClick={onCreateClick}
-            disabled={!canWrite}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-text-primary text-background font-medium hover:opacity-90 text-xs rounded transition-all duration-150 cursor-pointer shadow-lg disabled:opacity-30 disabled:cursor-not-allowed"
-            title={!canWrite ? 'You do not have permission to create sources' : undefined}
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Create Source
-          </button>
-        </div>
-      ) : (
-        <div className="bg-panel border border-border-primary rounded-lg overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-border-primary bg-panel-card/30 text-xs text-text-muted uppercase tracking-wider font-semibold">
-                  <th className="px-6 py-4">Source Name</th>
-                  <th className="px-6 py-4">Endpoint URL</th>
-                  <th className="px-6 py-4">Auth Strategy</th>
-                  <th className="px-6 py-4">Headers</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border-primary text-sm">
-                {sources.map((src) => (
-                  <tr key={src.id} className="hover:bg-panel-card/30 transition-colors duration-100">
-                    <td className="px-6 py-4 font-medium text-text-primary">{src.name}</td>
-                    <td className="px-6 py-4 font-mono text-xs text-text-secondary">{src.sourceUrl}</td>
-                    <td className="px-6 py-4 capitalize text-xs text-text-muted">{src.sourceAuthType}</td>
-                    <td className="px-6 py-4 text-xs text-text-muted">{src.sourceHeaders?.length || 0} headers</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-interface DestinationsPanelProps {
-  destinations: Destination[]
-  onCreateClick: () => void
-  canWrite: boolean
-}
-
-const DestinationsPanel: React.FC<DestinationsPanelProps> = ({ destinations, onCreateClick, canWrite }) => {
-  return (
-    <div className="space-y-8 max-w-5xl">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-semibold tracking-tight text-text-primary">Data Destinations</h2>
-          <p className="text-sm text-text-muted">Register and configure target SQL databases for data syncs.</p>
-        </div>
-        <button
-          onClick={onCreateClick}
-          disabled={!canWrite}
-          className="flex items-center gap-2 px-3.5 py-2 bg-text-primary text-background font-medium hover:opacity-90 text-xs rounded-lg transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-          title={!canWrite ? 'You do not have permission to create destinations' : undefined}
-        >
-          <Plus className="h-4 w-4 font-bold" />
-          Create Destination
-        </button>
-      </div>
-
-      {destinations.length === 0 ? (
-        <div className="bg-panel border border-border-primary rounded-xl p-16 text-center max-w-5xl mx-auto space-y-5">
-          <div className="flex justify-center">
-            <div className="h-20 w-20 bg-panel-card border border-border-primary rounded-full flex items-center justify-center">
-              <Database className="h-10 w-10 text-text-muted" />
-            </div>
-          </div>
-          <div className="space-y-2 max-w-sm mx-auto">
-            <h3 className="text-sm font-semibold text-text-primary">No Active Destinations</h3>
-            <p className="text-xs text-text-muted leading-relaxed">
-              Register MySQL or PostgreSQL endpoints to load your extracted api payloads.
-            </p>
-          </div>
-          <button
-            onClick={onCreateClick}
-            disabled={!canWrite}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-text-primary text-background font-medium hover:opacity-90 text-xs rounded transition-all duration-150 cursor-pointer shadow-lg disabled:opacity-30 disabled:cursor-not-allowed"
-            title={!canWrite ? 'You do not have permission to create destinations' : undefined}
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Create Destination
-          </button>
-        </div>
-      ) : (
-        <div className="bg-panel border border-border-primary rounded-lg overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-border-primary bg-panel-card/30 text-xs text-text-muted uppercase tracking-wider font-semibold">
-                  <th className="px-6 py-4">Destination Name</th>
-                  <th className="px-6 py-4">SQL Dialect</th>
-                  <th className="px-6 py-4">Connection Host</th>
-                  <th className="px-6 py-4">Database Target</th>
-                  <th className="px-6 py-4">SSH Tunnel</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border-primary text-sm">
-                {destinations.map((dest) => (
-                  <tr key={dest.id} className="hover:bg-panel-card/30 transition-colors duration-100">
-                    <td className="px-6 py-4 font-medium text-text-primary">{dest.name}</td>
-                    <td className="px-6 py-4 capitalize text-xs text-text-muted font-mono">{dest.targetDbDialect}</td>
-                    <td className="px-6 py-4 font-mono text-xs text-text-secondary">{dest.targetDbHost}:{dest.targetDbPort}</td>
-                    <td className="px-6 py-4 font-mono text-xs text-text-secondary">{dest.targetDbName}</td>
-                    <td className="px-6 py-4 text-xs text-text-muted">{dest.enableSshBastion ? 'Enabled' : 'Disabled'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-    </div>
   )
 }
 

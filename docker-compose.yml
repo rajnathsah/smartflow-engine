@@ -14,7 +14,7 @@ services:
       - app-network
 
   postgres:
-    image: postgres:15
+    image: pgvector/pgvector:pg15
     container_name: synq_postgres
     ports:
       - "5432:5432"

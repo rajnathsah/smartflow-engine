@@ -16,8 +16,7 @@ import {
 } from '@xyflow/react'
 import type { NodeProps, EdgeProps, Connection, Edge, Node } from '@xyflow/react'
 import { Database, Check, Play } from 'lucide-react'
-import axios from 'axios'
-import { useAuthStore } from '../store/authStore'
+import apiClient from '@/api/client'
 import '@xyflow/react/dist/style.css'
 
 export const CustomMappingEdge: React.FC<EdgeProps> = ({
@@ -62,10 +61,12 @@ export const CustomMappingEdge: React.FC<EdgeProps> = ({
   }
 
   const currentRule = (data?.rule as string) || 'NONE'
+  const isLight = document.documentElement.classList.contains('light')
+  const strokeColor = isLight ? '#a1a1aa' : '#27272a'
 
   return (
     <>
-      <BaseEdge path={edgePath} markerEnd={markerEnd} style={{ ...style, stroke: '#52525b', strokeWidth: 2 }} />
+      <BaseEdge path={edgePath} markerEnd={markerEnd} style={{ ...style, stroke: strokeColor, strokeWidth: 2 }} />
       <EdgeLabelRenderer>
         <div
           style={{
@@ -73,19 +74,19 @@ export const CustomMappingEdge: React.FC<EdgeProps> = ({
             transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
             pointerEvents: 'all'
           }}
-          className="nodrag nopan bg-black border border-zinc-800 text-white px-2 py-1 rounded text-[10px] flex items-center gap-1 shadow-md"
+          className="nodrag nopan bg-panel-card border border-border-primary text-text-primary px-2 py-1 rounded text-[10px] flex items-center gap-1 shadow-md"
         >
-          <span className="font-mono text-zinc-400">Rule:</span>
+          <span className="font-mono text-text-muted">Rule:</span>
           <select
             value={currentRule}
             onChange={handleRuleChange}
-            className="bg-transparent text-white font-mono focus:outline-none cursor-pointer pr-1"
+            className="bg-transparent text-text-primary font-mono focus:outline-none cursor-pointer pr-1"
           >
-            <option value="NONE" className="bg-black text-white">NONE</option>
-            <option value="CAST_INT" className="bg-black text-white">CAST_INT</option>
-            <option value="UPPERCASE" className="bg-black text-white">UPPERCASE</option>
-            <option value="LOWERCASE" className="bg-black text-white">LOWERCASE</option>
-            <option value="TRIM" className="bg-black text-white">TRIM</option>
+            <option value="NONE" className="bg-panel-card text-text-primary">NONE</option>
+            <option value="CAST_INT" className="bg-panel-card text-text-primary">CAST_INT</option>
+            <option value="UPPERCASE" className="bg-panel-card text-text-primary">UPPERCASE</option>
+            <option value="LOWERCASE" className="bg-panel-card text-text-primary">LOWERCASE</option>
+            <option value="TRIM" className="bg-panel-card text-text-primary">TRIM</option>
           </select>
         </div>
       </EdgeLabelRenderer>
@@ -97,21 +98,21 @@ export const SourceNode: React.FC<NodeProps> = ({ data }) => {
   const fields = Array.isArray(data?.fields) ? data.fields : []
 
   return (
-    <div className="bg-black border border-zinc-800 rounded-lg shadow-xl w-64 text-sm text-white font-sans overflow-hidden">
-      <div className="bg-zinc-900 px-4 py-3 border-b border-zinc-800">
-        <div className="font-semibold text-zinc-400 text-[10px] uppercase tracking-wider">Source API Schema</div>
+    <div className="bg-panel border border-border-primary rounded-lg shadow-xl w-64 text-sm text-text-primary font-sans overflow-hidden">
+      <div className="bg-panel-card px-4 py-3 border-b border-border-primary">
+        <div className="font-semibold text-text-muted text-[10px] uppercase tracking-wider">Source API Schema</div>
         <div className="font-bold text-xs truncate">REST Payload Template</div>
       </div>
-      <div className="divide-y divide-zinc-900">
+      <div className="divide-y divide-border-primary bg-panel-card/10">
         {fields.map((field) => (
           <div key={field} className="relative flex items-center justify-between py-2.5 px-4 h-10">
-            <span className="font-mono text-xs text-zinc-300">{field}</span>
+            <span className="font-mono text-xs text-text-secondary">{field}</span>
             <Handle
               type="source"
               position={Position.Right}
               id={field}
               style={{ right: -4, top: '50%', transform: 'translateY(-50%)' }}
-              className="w-2 h-2 bg-zinc-400 border border-black rounded-full hover:bg-white transition-colors"
+              className="w-2 h-2 bg-text-muted border border-border-primary rounded-full hover:bg-text-primary transition-colors"
             />
           </div>
         ))}
@@ -124,12 +125,12 @@ export const TargetNode: React.FC<NodeProps> = ({ data }) => {
   const fields = Array.isArray(data?.fields) ? data.fields : []
 
   return (
-    <div className="bg-black border border-zinc-800 rounded-lg shadow-xl w-64 text-sm text-white font-sans overflow-hidden">
-      <div className="bg-zinc-900 px-4 py-3 border-b border-zinc-800">
-        <div className="font-semibold text-zinc-400 text-[10px] uppercase tracking-wider">Target Database Schema</div>
+    <div className="bg-panel border border-border-primary rounded-lg shadow-xl w-64 text-sm text-text-primary font-sans overflow-hidden">
+      <div className="bg-panel-card px-4 py-3 border-b border-border-primary">
+        <div className="font-semibold text-text-muted text-[10px] uppercase tracking-wider">Target Database Schema</div>
         <div className="font-bold text-xs truncate">Dest Table Schema</div>
       </div>
-      <div className="divide-y divide-zinc-900">
+      <div className="divide-y divide-border-primary bg-panel-card/10">
         {fields.map((field) => (
           <div key={field} className="relative flex items-center justify-between py-2.5 px-4 h-10">
             <Handle
@@ -137,9 +138,9 @@ export const TargetNode: React.FC<NodeProps> = ({ data }) => {
               position={Position.Left}
               id={field}
               style={{ left: -4, top: '50%', transform: 'translateY(-50%)' }}
-              className="w-2 h-2 bg-zinc-400 border border-black rounded-full hover:bg-white transition-colors"
+              className="w-2 h-2 bg-text-muted border border-border-primary rounded-full hover:bg-text-primary transition-colors"
             />
-            <span className="font-mono text-xs text-zinc-300">{field}</span>
+            <span className="font-mono text-xs text-text-secondary">{field}</span>
           </div>
         ))}
       </div>
@@ -162,7 +163,6 @@ interface MappingCanvasProps {
 }
 
 const MappingCanvasInner: React.FC<MappingCanvasProps> = () => {
-  const { token } = useAuthStore()
   const [sourceKeys, setSourceKeys] = useState<string[]>([])
   const [targetColumns, setTargetColumns] = useState<string[]>([])
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([])
@@ -173,9 +173,7 @@ const MappingCanvasInner: React.FC<MappingCanvasProps> = () => {
   useEffect(() => {
     const fetchSchema = async () => {
       try {
-        const response = await axios.get('/api/v1/pipelines/active/schema', {
-          headers: { Authorization: `Bearer ${token}` }
-        })
+        const response = await apiClient.get('/api/v1/pipelines/active/schema')
         setSourceKeys(response.data.sourceKeys)
         setTargetColumns(response.data.targetColumns)
       } catch (err) {
@@ -183,7 +181,7 @@ const MappingCanvasInner: React.FC<MappingCanvasProps> = () => {
       }
     }
     fetchSchema()
-  }, [token])
+  }, [])
 
   useEffect(() => {
     if (sourceKeys.length === 0 && targetColumns.length === 0) return
@@ -227,9 +225,7 @@ const MappingCanvasInner: React.FC<MappingCanvasProps> = () => {
     }))
 
     try {
-      await axios.post('/api/v1/mappings', serialized, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
+      await apiClient.post('/api/v1/mappings', serialized)
       setSerializedPayload(JSON.stringify(serialized, null, 2))
       setSaveSuccess(true)
       setTimeout(() => {
@@ -240,6 +236,9 @@ const MappingCanvasInner: React.FC<MappingCanvasProps> = () => {
       console.error(err)
     }
   }
+
+  const isLight = document.documentElement.classList.contains('light')
+  const gridColor = isLight ? '#e4e4e7' : '#18181b'
 
   return (
     <div className="space-y-6 max-w-5xl">
@@ -269,7 +268,7 @@ const MappingCanvasInner: React.FC<MappingCanvasProps> = () => {
         </div>
       )}
 
-      <div className="h-[450px] w-full bg-black border border-zinc-800 rounded-xl overflow-hidden relative shadow-inner">
+      <div className="h-[450px] w-full bg-background border border-border-primary rounded-xl overflow-hidden relative shadow-inner">
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -279,10 +278,10 @@ const MappingCanvasInner: React.FC<MappingCanvasProps> = () => {
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
           fitView
-          className="bg-black"
+          className="bg-background"
         >
-          <Background color="#27272a" gap={20} size={1} />
-          <Controls className="bg-black border border-zinc-800 text-white rounded-md" />
+          <Background color={gridColor} gap={20} size={1} />
+          <Controls className="bg-panel border border-border-primary text-text-primary rounded-md" />
         </ReactFlow>
       </div>
 

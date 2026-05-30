@@ -3,7 +3,7 @@ import secrets
 import string
 import httpx
 from datetime import datetime, timedelta
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from fastapi import HTTPException, status
 from passlib.context import CryptContext
 from jose import jwt

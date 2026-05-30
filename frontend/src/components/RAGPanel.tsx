@@ -1,7 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react'
-import axios from 'axios'
-import { useAuthStore } from '@/store/authStore'
-import { Upload, FileText, Send, Download, Database, Cpu, Loader2, BookOpen } from 'lucide-react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
+import apiClient from '@/api/client'
+import { Upload, FileText, Send, Download, Cpu, Loader2, BookOpen } from 'lucide-react'
 
 interface DocumentItem {
   filename: string
@@ -17,7 +16,6 @@ interface ChatMessage {
 }
 
 export const RAGPanel: React.FC = () => {
-  const { token } = useAuthStore()
   const [documents, setDocuments] = useState<DocumentItem[]>([])
   const [selectedDoc, setSelectedDoc] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
@@ -26,23 +24,21 @@ export const RAGPanel: React.FC = () => {
   const [querying, setQuerying] = useState(false)
   const chatEndRef = useRef<HTMLDivElement>(null)
 
-  const fetchDocuments = async () => {
+  const fetchDocuments = useCallback(async () => {
     try {
-      const response = await axios.get('/api/v1/documents', {
-        headers: { Authorization: `Bearer ${token}` }
-      })
+      const response = await apiClient.get('/api/v1/documents')
       setDocuments(response.data)
-      if (response.data.length > 0 && !selectedDoc) {
-        setSelectedDoc(response.data[0].filename)
+      if (response.data.length > 0) {
+        setSelectedDoc((prev) => prev || response.data[0].filename)
       }
     } catch (error) {
       console.error('Failed to fetch documents:', error)
     }
-  }
+  }, [])
 
   useEffect(() => {
     fetchDocuments()
-  }, [])
+  }, [fetchDocuments])
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -56,9 +52,8 @@ export const RAGPanel: React.FC = () => {
 
     setUploading(true)
     try {
-      await axios.post('/api/v1/documents/upload', formData, {
+      await apiClient.post('/api/v1/documents/upload', formData, {
         headers: {
-          Authorization: `Bearer ${token}`,
           'Content-Type': 'multipart/form-data'
         }
       })
@@ -87,13 +82,12 @@ export const RAGPanel: React.FC = () => {
     setQuerying(true)
 
     try {
-      const response = await axios.post(
+      const response = await apiClient.post(
         '/api/v1/documents/query',
         {
           query: userMsg.text,
           document_ids: selectedDoc ? [selectedDoc] : []
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
+        }
       )
 
       const assistantMsg: ChatMessage = {
@@ -123,11 +117,10 @@ export const RAGPanel: React.FC = () => {
     if (!assistantMsg) return
 
     try {
-      const response = await axios.post(
+      const response = await apiClient.post(
         '/api/v1/documents/export',
         { format, content: assistantMsg.text },
         {
-          headers: { Authorization: `Bearer ${token}` },
           responseType: 'blob'
         }
       )
@@ -156,55 +149,55 @@ export const RAGPanel: React.FC = () => {
 
   return (
     <div className="flex flex-col md:flex-row gap-6 h-[calc(100vh-120px)] max-w-7xl font-sans">
-      <div className="w-full md:w-5/12 bg-black border border-zinc-800 rounded-xl flex flex-col justify-between p-6 overflow-hidden">
+      <div className="w-full md:w-5/12 bg-panel border border-border-primary rounded-xl flex flex-col justify-between p-6 overflow-hidden">
         <div className="space-y-6 flex-1 flex flex-col overflow-hidden">
           <div className="space-y-1">
-            <h3 className="text-sm font-semibold tracking-tight text-white uppercase flex items-center gap-2">
-              <BookOpen className="h-4 w-4 text-zinc-400" />
+            <h3 className="text-sm font-semibold tracking-tight text-text-primary uppercase flex items-center gap-2">
+              <BookOpen className="h-4 w-4 text-text-muted" />
               Document Library
             </h3>
             <p className="text-xs text-text-muted">Manage unstructured vendor quotation files.</p>
           </div>
 
-          <label className="border border-dashed border-zinc-800 hover:border-zinc-700 bg-zinc-950/40 rounded-xl p-6 text-center cursor-pointer block transition-all">
+          <label className="border border-dashed border-border-primary hover:border-border-secondary bg-panel-card/40 rounded-xl p-6 text-center cursor-pointer block transition-all">
             <input type="file" accept=".pdf,.txt,.png,.jpg,.jpeg" onChange={handleFileUpload} className="hidden" />
             {uploading ? (
               <div className="space-y-2">
-                <Loader2 className="h-6 w-6 animate-spin text-zinc-400 mx-auto" />
-                <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold">Running OCR Extraction...</span>
+                <Loader2 className="h-6 w-6 animate-spin text-text-muted mx-auto" />
+                <span className="text-[10px] text-text-muted uppercase tracking-wider font-semibold">Running OCR Extraction...</span>
               </div>
             ) : (
               <div className="space-y-2">
-                <Upload className="h-6 w-6 text-zinc-500 mx-auto" />
-                <span className="text-[10px] text-zinc-300 uppercase tracking-wider font-semibold block">Upload Quote PDF / Image</span>
-                <span className="text-[9px] text-zinc-500 block">PDF, TXT, PNG, JPG</span>
+                <Upload className="h-6 w-6 text-text-muted mx-auto" />
+                <span className="text-[10px] text-text-primary uppercase tracking-wider font-semibold block">Upload Quote PDF / Image</span>
+                <span className="text-[9px] text-text-muted block">PDF, TXT, PNG, JPG</span>
               </div>
             )}
           </label>
 
           <div className="flex-1 flex flex-col overflow-hidden space-y-3">
-            <span className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider block">Uploaded Content</span>
+            <span className="text-[10px] font-semibold text-text-secondary uppercase tracking-wider block">Uploaded Content</span>
             {documents.length === 0 ? (
-              <div className="flex-1 flex items-center justify-center border border-zinc-900 rounded-lg text-xs text-zinc-500 p-8 text-center">
+              <div className="flex-1 flex items-center justify-center border border-border-primary rounded-lg text-xs text-text-muted p-8 text-center bg-panel-card/20">
                 No analyzed documents found. Drag and drop a file to process embeddings.
               </div>
             ) : (
-              <div className="flex-1 overflow-y-auto divide-y divide-zinc-900 border border-zinc-900 rounded-lg bg-zinc-950/20">
+              <div className="flex-1 overflow-y-auto divide-y divide-border-primary border border-border-primary rounded-lg bg-panel-card/10">
                 {documents.map((doc) => (
                   <button
                     key={doc.filename}
                     onClick={() => setSelectedDoc(doc.filename)}
                     className={`w-full py-3 px-4 flex items-center justify-between text-left text-xs transition-colors ${
                       selectedDoc === doc.filename
-                        ? 'bg-zinc-900 text-white font-medium'
-                        : 'text-zinc-400 hover:text-white hover:bg-zinc-900/30'
+                        ? 'bg-panel-card text-text-primary font-medium'
+                        : 'text-text-secondary hover:text-text-primary hover:bg-panel-card/50'
                     }`}
                   >
                     <div className="flex items-center gap-2.5 truncate">
-                      <FileText className="h-4 w-4 shrink-0 text-zinc-500" />
+                      <FileText className="h-4 w-4 shrink-0 text-text-muted" />
                       <span className="truncate">{doc.filename}</span>
                     </div>
-                    <span className="text-[9px] text-zinc-500 font-mono shrink-0">
+                    <span className="text-[9px] text-text-muted font-mono shrink-0">
                       {(doc.size / 1024).toFixed(1)} KB
                     </span>
                   </button>
@@ -215,11 +208,11 @@ export const RAGPanel: React.FC = () => {
         </div>
       </div>
 
-      <div className="w-full md:w-7/12 bg-black border border-zinc-800 rounded-xl flex flex-col justify-between overflow-hidden">
-        <div className="p-6 border-b border-zinc-800 flex items-center justify-between">
+      <div className="w-full md:w-7/12 bg-panel border border-border-primary rounded-xl flex flex-col justify-between overflow-hidden">
+        <div className="p-6 border-b border-border-primary flex items-center justify-between bg-panel-card/10">
           <div className="space-y-1">
-            <h3 className="text-sm font-semibold tracking-tight text-white uppercase flex items-center gap-2">
-              <Cpu className="h-4 w-4 text-zinc-400" />
+            <h3 className="text-sm font-semibold tracking-tight text-text-primary uppercase flex items-center gap-2">
+              <Cpu className="h-4 w-4 text-text-muted" />
               Conversational RAG Agent
             </h3>
             <p className="text-xs text-text-muted">Interactive side-by-side quotation comparison analyzer.</p>
@@ -228,28 +221,28 @@ export const RAGPanel: React.FC = () => {
             <div className="flex items-center gap-2">
               <button
                 onClick={() => handleExport('excel')}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 border border-zinc-800 hover:border-zinc-700 bg-zinc-950 text-white text-[10px] font-semibold uppercase tracking-wider rounded transition-all cursor-pointer"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 border border-border-primary hover:border-border-secondary bg-panel-card text-text-primary text-[10px] font-semibold uppercase tracking-wider rounded transition-all cursor-pointer"
               >
-                <Download className="h-3 w-3 text-zinc-400" />
+                <Download className="h-3 w-3 text-text-muted" />
                 Excel
               </button>
               <button
                 onClick={() => handleExport('pdf')}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 border border-zinc-800 hover:border-zinc-700 bg-zinc-950 text-white text-[10px] font-semibold uppercase tracking-wider rounded transition-all cursor-pointer"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 border border-border-primary hover:border-border-secondary bg-panel-card text-text-primary text-[10px] font-semibold uppercase tracking-wider rounded transition-all cursor-pointer"
               >
-                <Download className="h-3 w-3 text-zinc-400" />
+                <Download className="h-3 w-3 text-text-muted" />
                 PDF
               </button>
             </div>
           )}
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-zinc-950/10 scrollbar-thin">
+        <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-panel-card/5 scrollbar-thin">
           {chatHistory.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-center space-y-2 p-12 text-zinc-500">
-              <Cpu className="h-8 w-8 text-zinc-700" />
-              <div className="text-xs font-semibold text-zinc-400">Ask your document questions</div>
-              <p className="text-[10px] text-zinc-600 max-w-xs leading-relaxed">
+            <div className="h-full flex flex-col items-center justify-center text-center space-y-2 p-12 text-text-muted">
+              <Cpu className="h-8 w-8 text-border-secondary" />
+              <div className="text-xs font-semibold text-text-secondary">Ask your document questions</div>
+              <p className="text-[10px] text-text-muted max-w-xs leading-relaxed">
                 Provide queries such as "Create a side-by-side table comparing rates and terms" to contrast proposals.
               </p>
             </div>
@@ -261,42 +254,42 @@ export const RAGPanel: React.FC = () => {
                   msg.sender === 'user' ? 'ml-auto items-end' : 'mr-auto items-start'
                 }`}
               >
-                <div className="text-[9px] text-zinc-500 font-mono">{msg.timestamp}</div>
+                <div className="text-[9px] text-text-muted font-mono">{msg.timestamp}</div>
                 <div
                   className={`py-3 px-4 rounded-xl text-xs leading-relaxed ${
                     msg.sender === 'user'
-                      ? 'bg-white text-black font-medium rounded-tr-none'
-                      : 'bg-zinc-900 text-white border border-zinc-850 rounded-tl-none overflow-x-auto w-full'
+                      ? 'bg-text-primary text-background font-medium rounded-tr-none border border-border-primary'
+                      : 'bg-panel-card text-text-primary border border-border-primary rounded-tl-none overflow-x-auto w-full'
                   }`}
                 >
                   {msg.sender === 'user' ? (
                     msg.text
                   ) : (
-                    <div className="prose prose-invert prose-xs max-w-none">
+                    <div className="prose prose-invert prose-xs max-w-none text-text-primary">
                       {msg.text.split('\n').map((line, idx) => {
                         if (line.startsWith('|')) {
                           return (
-                            <div key={idx} className="font-mono whitespace-pre overflow-x-auto text-[11px] leading-tight text-zinc-300">
+                            <div key={idx} className="font-mono whitespace-pre overflow-x-auto text-[11px] leading-tight text-text-secondary">
                               {line}
                             </div>
                           )
                         }
                         if (line.startsWith('###')) {
                           return (
-                            <h4 key={idx} className="text-xs font-semibold text-white mt-4 mb-2 uppercase tracking-wide">
+                            <h4 key={idx} className="text-xs font-semibold text-text-primary mt-4 mb-2 uppercase tracking-wide">
                               {line.replace('###', '').trim()}
                             </h4>
                           )
                         }
                         if (line.startsWith('-')) {
                           return (
-                            <li key={idx} className="list-none pl-2 text-zinc-300 mb-1 text-[11px]">
+                            <li key={idx} className="list-none pl-2 text-text-secondary mb-1 text-[11px]">
                               {line}
                             </li>
                           )
                         }
                         return (
-                          <p key={idx} className="mb-2 text-zinc-300">
+                          <p key={idx} className="mb-2 text-text-secondary">
                             {line}
                           </p>
                         )
@@ -309,8 +302,8 @@ export const RAGPanel: React.FC = () => {
           )}
           {querying && (
             <div className="flex flex-col space-y-1.5 max-w-[80%] mr-auto items-start">
-              <div className="py-3 px-4 rounded-xl bg-zinc-900 text-zinc-500 text-xs border border-zinc-850 rounded-tl-none flex items-center gap-2">
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-zinc-500" />
+              <div className="py-3 px-4 rounded-xl bg-panel-card text-text-muted text-xs border border-border-primary rounded-tl-none flex items-center gap-2">
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-text-muted" />
                 <span>Generating comparison matrix...</span>
               </div>
             </div>
@@ -318,18 +311,18 @@ export const RAGPanel: React.FC = () => {
           <div ref={chatEndRef} />
         </div>
 
-        <form onSubmit={handleQuerySubmit} className="p-6 border-t border-zinc-800 bg-zinc-950/20 flex gap-2">
+        <form onSubmit={handleQuerySubmit} className="p-6 border-t border-border-primary bg-panel-card/10 flex gap-2">
           <input
             type="text"
             value={queryText}
             onChange={(e) => setQueryText(e.target.value)}
             placeholder="Compare the pricing structures of the uploaded quotation documents..."
-            className="flex-1 bg-zinc-900 border border-zinc-800 text-white placeholder-zinc-600 text-xs rounded-lg px-4 py-3 focus:outline-none focus:border-zinc-700 transition-all font-sans"
+            className="flex-1 bg-panel-card border border-border-primary text-text-primary placeholder-text-muted text-xs rounded-lg px-4 py-3 focus:outline-none focus:border-border-secondary transition-all font-sans"
           />
           <button
             type="submit"
             disabled={!queryText.trim() || querying}
-            className="px-4 py-3 bg-white hover:bg-zinc-100 disabled:opacity-30 disabled:hover:bg-white text-black font-semibold rounded-lg transition-all flex items-center justify-center cursor-pointer shrink-0"
+            className="px-4 py-3 bg-text-primary hover:opacity-90 disabled:opacity-30 text-background font-semibold rounded-lg transition-all flex items-center justify-center cursor-pointer shrink-0"
           >
             <Send className="h-3.5 w-3.5" />
           </button>
