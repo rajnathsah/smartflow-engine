@@ -3,7 +3,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useNavigate } from 'react-router-dom'
-import axios from 'axios'
+import apiClient from '@/api/client'
 import { Lock, Loader2, ShieldAlert, ArrowLeft, Database, Globe, Network, ArrowRight, ShieldCheck, Mail, User, Sun, Moon } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { motion, useMotionValue, useMotionTemplate } from 'framer-motion'
@@ -34,6 +34,7 @@ type RegisterFormData = z.infer<typeof registerSchema>
 type ResetFormData = z.infer<typeof resetSchema>
 
 export const DataTunnel: React.FC = () => {
+  const { theme } = useAuthStore()
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
@@ -77,7 +78,8 @@ export const DataTunnel: React.FC = () => {
         this.cp2x = width * 0.66 + (Math.random() - 0.5) * 80
         this.cp2y = this.endY + (Math.random() - 0.5) * 250
         const opacity = 0.03 + Math.random() * 0.05
-        this.color = `rgba(255, 255, 255, ${opacity})`
+        const isLight = theme === 'light'
+        this.color = isLight ? `rgba(9, 9, 11, ${opacity})` : `rgba(255, 255, 255, ${opacity})`
         this.width = 1.0
       }
 
@@ -131,7 +133,8 @@ export const DataTunnel: React.FC = () => {
         let fade = 1
         if (this.t < 0.15) fade = this.t / 0.15
         else if (this.t > 0.85) fade = (1 - this.t) / 0.15
-        ctx.fillStyle = `rgba(255, 255, 255, ${this.alpha * fade})`
+        const isLight = theme === 'light'
+        ctx.fillStyle = isLight ? `rgba(9, 9, 11, ${this.alpha * fade})` : `rgba(255, 255, 255, ${this.alpha * fade})`
         ctx.beginPath()
         ctx.arc(pt.x, pt.y, this.size, 0, Math.PI * 2)
         ctx.fill()
@@ -157,7 +160,8 @@ export const DataTunnel: React.FC = () => {
 
     const animate = () => {
       if (!ctx) return
-      ctx.fillStyle = '#000000'
+      const isLight = theme === 'light'
+      ctx.fillStyle = isLight ? '#ffffff' : '#000000'
       ctx.fillRect(0, 0, width, height)
       curves.forEach(c => c.draw())
       particles.forEach(p => {
@@ -165,8 +169,8 @@ export const DataTunnel: React.FC = () => {
         p.draw()
       })
       const mask = ctx.createRadialGradient(width / 2, height / 2, 80, width / 2, height / 2, 400)
-      mask.addColorStop(0, 'rgba(0, 0, 0, 0.95)')
-      mask.addColorStop(1, 'rgba(0, 0, 0, 0)')
+      mask.addColorStop(0, isLight ? 'rgba(255, 255, 255, 0.95)' : 'rgba(0, 0, 0, 0.95)')
+      mask.addColorStop(1, isLight ? 'rgba(255, 255, 255, 0)' : 'rgba(0, 0, 0, 0)')
       ctx.fillStyle = mask
       ctx.fillRect(0, 0, width, height)
       animationFrameId = requestAnimationFrame(animate)
@@ -178,17 +182,16 @@ export const DataTunnel: React.FC = () => {
       window.removeEventListener('resize', handleResize)
       cancelAnimationFrame(animationFrameId)
     }
-  }, [])
+  }, [theme])
 
+  const isLight = theme === 'light'
   return (
     <canvas
       ref={canvasRef}
-      className="absolute inset-0 w-full h-full pointer-events-none z-0 bg-black"
+      className={`absolute inset-0 w-full h-full pointer-events-none z-0 ${isLight ? 'bg-white' : 'bg-black'}`}
     />
   )
 }
-
-
 
 interface ConnectorCardProps {
   title: string
@@ -198,6 +201,7 @@ interface ConnectorCardProps {
 }
 
 const ConnectorCard: React.FC<ConnectorCardProps> = ({ title, description, icon: Icon, category }) => {
+  const { theme } = useAuthStore()
   const mouseX = useMotionValue(0)
   const mouseY = useMotionValue(0)
 
@@ -207,12 +211,15 @@ const ConnectorCard: React.FC<ConnectorCardProps> = ({ title, description, icon:
     mouseY.set(clientY - top)
   }
 
+  const isLight = theme === 'light'
+  const glowColor = isLight ? 'rgba(9, 9, 11, 0.08)' : 'rgba(255, 255, 255, 0.12)'
+
   return (
     <motion.div
       onMouseMove={handleMouseMove}
       whileHover={{ y: -4 }}
       transition={{ type: 'spring', stiffness: 50, damping: 20 }}
-      className="group relative rounded-2xl border border-zinc-900 bg-[#18181B]/40 p-8 space-y-6 overflow-hidden"
+      className="group relative rounded-2xl border border-border-primary bg-panel-card/40 p-8 space-y-6 overflow-hidden"
     >
       <motion.div
         className="pointer-events-none absolute -inset-px rounded-2xl opacity-0 group-hover:opacity-100 transition duration-300"
@@ -220,25 +227,25 @@ const ConnectorCard: React.FC<ConnectorCardProps> = ({ title, description, icon:
           background: useMotionTemplate`
             radial-gradient(
               150px circle at ${mouseX}px ${mouseY}px,
-              rgba(255, 255, 255, 0.12),
+              ${glowColor},
               transparent 80%
             )
           `
         }}
       />
-      <div className="h-10 w-10 bg-[#000000] rounded-lg border border-zinc-850 flex items-center justify-center">
-        <Icon className="h-5 w-5 text-white" />
+      <div className="h-10 w-10 bg-background rounded-lg border border-border-primary flex items-center justify-center">
+        <Icon className="h-5 w-5 text-text-primary" />
       </div>
       <div className="space-y-2">
         <div className="flex justify-between items-baseline">
-          <h3 className="text-sm font-black tracking-wider uppercase text-white">{title}</h3>
-          <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-wider">{category}</span>
+          <h3 className="text-sm font-black tracking-wider uppercase text-text-primary">{title}</h3>
+          <span className="text-[9px] text-text-muted font-bold uppercase tracking-wider">{category}</span>
         </div>
-        <p className="text-zinc-400 text-xs font-light leading-relaxed">
+        <p className="text-text-secondary text-xs font-light leading-relaxed">
           {description}
         </p>
       </div>
-      <div className="flex items-center gap-1.5 text-[10px] text-white hover:text-zinc-400 font-black uppercase tracking-wider cursor-pointer">
+      <div className="flex items-center gap-1.5 text-[10px] text-text-primary hover:text-text-muted font-black uppercase tracking-wider cursor-pointer">
         <span>Explore Connector</span>
         <ArrowRight className="h-3 w-3" />
       </div>
@@ -275,7 +282,6 @@ export const Login: React.FC = () => {
     }
   }, [token, isFirstLogin, email, activeTenant, role])
 
-
   const loginForm = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
     defaultValues: {
@@ -307,7 +313,7 @@ export const Login: React.FC = () => {
     setError('')
     setIsAuthenticating(true)
     try {
-      const response = await axios.post('/api/v1/auth/login', {
+      const response = await apiClient.post('/api/v1/auth/login', {
         tenant: data.tenant,
         username: data.email,
         password: data.password
@@ -343,7 +349,7 @@ export const Login: React.FC = () => {
     setError('')
     setIsAuthenticating(true)
     try {
-      const response = await axios.post('/api/v1/auth/register', {
+      const response = await apiClient.post('/api/v1/auth/register', {
         tenant: data.tenant,
         username: data.username,
         email: data.email,
@@ -363,10 +369,14 @@ export const Login: React.FC = () => {
     setError('')
     setIsAuthenticating(true)
     try {
-      const response = await axios.post(
+      const response = await apiClient.post(
         '/api/v1/auth/reset-password',
         { new_password: data.newPassword },
-        { headers: { Authorization: `Bearer ${tempToken}` } }
+        {
+          headers: {
+            Authorization: `Bearer ${tempToken}`
+          }
+        }
       )
       const { access_token, tenant_name, role, email } = response.data
       login(access_token, tenant_name || tempTenant!, role || tempRole!, email || tempEmail!, false)
@@ -386,7 +396,7 @@ export const Login: React.FC = () => {
     setIsAuthenticating(true)
     try {
       const mockGoogleId = `google_${Math.floor(100000000000000000000 + Math.random() * 900000000000000000000).toString()}`
-      const response = await axios.post('/api/v1/auth/google', {
+      const response = await apiClient.post('/api/v1/auth/google', {
         email: googleEmail,
         name: googleName,
         google_id: mockGoogleId
@@ -402,13 +412,15 @@ export const Login: React.FC = () => {
     }
   }
 
+  const isLight = theme === 'light'
+
   return (
-    <div className="relative w-screen min-h-screen bg-[#000000] text-[#FFFFFF] font-sans selection:bg-[#FFFFFF]/10 selection:text-[#FFFFFF] overflow-x-hidden">
+    <div className="relative w-screen min-h-screen bg-background text-text-primary font-sans selection:bg-text-primary/10 selection:text-text-primary overflow-x-hidden">
       
       <DataTunnel />
 
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none opacity-[0.03] z-0">
-        <svg viewBox="0 0 100 100" className="w-[50vw] h-[50vw] max-w-[600px] max-h-[600px] text-white">
+        <svg viewBox="0 0 100 100" className="w-[50vw] h-[50vw] max-w-[600px] max-h-[600px] text-text-primary">
           <path d="M 32 35 L 68 35 L 68 50 L 32 50 L 32 65 L 68 65" 
                 fill="none" 
                 stroke="currentColor" 
@@ -419,41 +431,43 @@ export const Login: React.FC = () => {
         </svg>
       </div>
 
-      <header className="fixed top-0 left-0 right-0 h-20 border-b border-zinc-900 bg-black/60 backdrop-blur-md flex items-center justify-between px-8 md:px-16 z-50">
+      <header className="fixed top-0 left-0 right-0 h-20 border-b border-border-primary bg-background/60 backdrop-blur-md flex items-center justify-between px-8 md:px-16 z-50">
         <div className="flex items-center gap-3">
           <svg viewBox="0 0 100 100" className="h-8 w-8 shrink-0">
-            <rect width="100" height="100" rx="24" fill="#000000" />
+            <rect width="100" height="100" rx="24" fill={isLight ? '#ffffff' : '#000000'} className="stroke border-border-primary" />
             <path d="M 32 35 L 68 35 L 68 50 L 32 50 L 32 65 L 68 65" 
                   fill="none" 
-                  stroke="#ffffff" 
+                  stroke={isLight ? '#09090b' : '#ffffff'} 
                   strokeWidth="10" 
                   strokeLinecap="square" 
                   strokeLinejoin="miter" />
-            <rect x="62" y="44" width="12" height="12" fill="#ffffff" />
+            <rect x="62" y="44" width="12" height="12" fill={isLight ? '#09090b' : '#ffffff'} />
           </svg>
-          <span className="font-bold text-sm tracking-wider uppercase text-white">
+          <span className="font-bold text-sm tracking-wider uppercase text-text-primary">
             synq.to
           </span>
         </div>
 
         <nav className="hidden md:flex items-center gap-8">
-          <a href="#" className="text-xs font-semibold text-zinc-400 hover:text-white uppercase tracking-wider transition-colors">Product</a>
-          <a href="#" className="text-xs font-semibold text-zinc-400 hover:text-white uppercase tracking-wider transition-colors">Solutions</a>
-          <a href="#" className="text-xs font-semibold text-zinc-400 hover:text-white uppercase tracking-wider transition-colors">Docs</a>
-          <a href="#" className="text-xs font-semibold text-zinc-400 hover:text-white uppercase tracking-wider transition-colors">Pricing</a>
+          <a href="#" className="text-xs font-semibold text-text-secondary hover:text-text-primary uppercase tracking-wider transition-colors">Product</a>
+          <a href="#" className="text-xs font-semibold text-text-secondary hover:text-text-primary uppercase tracking-wider transition-colors">Solutions</a>
+          <a href="#" className="text-xs font-semibold text-text-secondary hover:text-text-primary uppercase tracking-wider transition-colors">Docs</a>
+          <a href="#" className="text-xs font-semibold text-text-secondary hover:text-text-primary uppercase tracking-wider transition-colors">Pricing</a>
         </nav>
 
         <div className="flex items-center gap-4">
           <button
             onClick={toggleTheme}
-            className="p-2 border border-zinc-800 bg-zinc-950 hover:bg-zinc-900 text-zinc-400 hover:text-white rounded-full transition-all cursor-pointer flex items-center justify-center"
-            title={theme === 'light' ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
+            className="p-2 border border-border-primary bg-panel hover:bg-panel-card text-text-secondary hover:text-text-primary rounded-full transition-all cursor-pointer flex items-center justify-center"
+            title={isLight ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
+            aria-label={isLight ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
           >
-            {theme === 'light' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+            {isLight ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
           </button>
           <button 
             onClick={() => setIsTransitioned(true)}
-            className="px-5 py-2.5 bg-[#FFFFFF] hover:bg-[#000000] hover:text-[#FFFFFF] text-[#000000] border border-[#FFFFFF] text-[10px] font-black uppercase tracking-widest rounded-full transition-all cursor-pointer shadow-[0_0_15px_rgba(255,255,255,0.1)]"
+            className="px-5 py-2.5 bg-text-primary hover:bg-background hover:text-text-primary text-background border border-text-primary text-[10px] font-black uppercase tracking-widest rounded-full transition-all cursor-pointer shadow-[0_0_15px_rgba(255,255,255,0.1)]"
+            aria-label="Try it free"
           >
             TRY IT FREE
           </button>
@@ -470,13 +484,13 @@ export const Login: React.FC = () => {
               transition={{ type: 'spring', stiffness: 50, damping: 20 }}
               className="space-y-4"
             >
-              <h1 className="text-4xl md:text-6xl font-black tracking-tight text-white leading-tight uppercase">
+              <h1 className="text-4xl md:text-6xl font-black tracking-tight text-text-primary leading-tight uppercase">
                 BUILD PIPELINES WITH <br />
-                <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#FFFFFF] to-[#A1A1AA] drop-shadow-[0_0_20px_rgba(255,255,255,0.15)]">
+                <span className="text-transparent bg-clip-text bg-gradient-to-r from-text-primary to-text-secondary drop-shadow-[0_0_20px_rgba(255,255,255,0.15)]">
                   synq.to
                 </span>
               </h1>
-              <p className="text-zinc-450 text-xs md:text-sm tracking-widest uppercase max-w-lg mx-auto leading-relaxed">
+              <p className="text-text-muted text-xs md:text-sm tracking-widest uppercase max-w-lg mx-auto leading-relaxed">
                 (ZERO-TOUCH ETL. AUTO-INFER SCHEMAS AND SYNC DATABASES IN MINUTES, NOT DAYS.)
               </p>
             </motion.div>
@@ -489,32 +503,34 @@ export const Login: React.FC = () => {
             >
               <button
                 onClick={() => setIsTransitioned(true)}
-                className="px-8 py-4 bg-[#FFFFFF] text-[#000000] hover:bg-[#000000] hover:text-[#FFFFFF] border border-[#FFFFFF] font-black text-xs tracking-widest uppercase rounded-full transition-all cursor-pointer shadow-[0_0_20px_rgba(255,255,255,0.1)]"
+                className="px-8 py-4 bg-text-primary text-background hover:bg-background hover:text-text-primary border border-text-primary font-black text-xs tracking-widest uppercase rounded-full transition-all cursor-pointer shadow-[0_0_20px_rgba(255,255,255,0.1)]"
+                aria-label="Enter application"
               >
                 ENTER SYNQ.TO
               </button>
               <button
-                className="px-8 py-4 bg-transparent hover:bg-zinc-900 border border-zinc-800 text-white font-black text-xs tracking-widest uppercase rounded-full transition-all cursor-pointer"
+                className="px-8 py-4 bg-transparent hover:bg-panel border border-border-primary text-text-primary font-black text-xs tracking-widest uppercase rounded-full transition-all cursor-pointer"
+                aria-label="Talk to sales"
               >
                 TALK TO US
               </button>
             </motion.div>
           </div>
 
-          <div className="max-w-5xl mx-auto px-8 pt-16 flex flex-wrap items-center justify-center gap-8 md:gap-12 text-zinc-500 text-xs font-semibold uppercase tracking-wider select-none">
-            <div className="flex items-center gap-2 hover:text-white transition-colors duration-200 cursor-default">
+          <div className="max-w-5xl mx-auto px-8 pt-16 flex flex-wrap items-center justify-center gap-8 md:gap-12 text-text-muted text-xs font-semibold uppercase tracking-wider select-none">
+            <div className="flex items-center gap-2 hover:text-text-primary transition-colors duration-200 cursor-default">
               <ShieldCheck className="h-4 w-4" />
               <span>ISO 27001 Certified</span>
             </div>
-            <div className="flex items-center gap-2 hover:text-white transition-colors duration-200 cursor-default">
+            <div className="flex items-center gap-2 hover:text-text-primary transition-colors duration-200 cursor-default">
               <Lock className="h-4 w-4" />
               <span>SOC 2 Type II Certified</span>
             </div>
-            <div className="flex items-center gap-2 hover:text-white transition-colors duration-200 cursor-default">
+            <div className="flex items-center gap-2 hover:text-text-primary transition-colors duration-200 cursor-default">
               <Globe className="h-4 w-4" />
               <span>GDPR Compliant</span>
             </div>
-            <div className="flex items-center gap-2 hover:text-white transition-colors duration-200 cursor-default">
+            <div className="flex items-center gap-2 hover:text-text-primary transition-colors duration-200 cursor-default">
               <Database className="h-4 w-4" />
               <span>HIPAA Secure</span>
             </div>
@@ -522,10 +538,10 @@ export const Login: React.FC = () => {
 
           <div className="max-w-5xl mx-auto px-8 pt-32 space-y-16">
             <div className="space-y-2 text-center">
-              <h2 className="text-xl md:text-3xl font-black tracking-tight text-white uppercase">
+              <h2 className="text-xl md:text-3xl font-black tracking-tight text-text-primary uppercase">
                 Hundreds of connectors for your data pipelines
               </h2>
-              <p className="text-zinc-500 text-xs uppercase tracking-widest">
+              <p className="text-text-muted text-xs uppercase tracking-widest">
                 Every source, every destination. Zero manual mapping.
               </p>
             </div>
@@ -555,40 +571,51 @@ export const Login: React.FC = () => {
       )}
 
       {isTransitioned && (
-        <div className="fixed inset-0 flex items-center justify-center z-50 bg-black/75 backdrop-blur-md px-4">
+        <div className="fixed inset-0 flex items-center justify-center z-50 bg-background/75 backdrop-blur-md px-4">
           <motion.div
             initial={{ opacity: 0, y: 60 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ type: 'spring', stiffness: 50, damping: 20 }}
-            className="w-full max-w-md bg-[#09090B] border border-zinc-900 rounded-3xl p-8 space-y-6 shadow-[0_0_50px_rgba(255,255,255,0.06)] relative"
+            className="w-full max-w-md bg-panel border border-border-primary rounded-3xl p-8 space-y-6 shadow-[0_0_50px_rgba(0,0,0,0.06)] relative animate-fadeIn"
           >
             {!isFirstLoginState && (
               <button
                 onClick={() => setIsTransitioned(false)}
-                className="absolute top-6 left-6 text-zinc-500 hover:text-white transition-colors cursor-pointer flex items-center gap-1.5 text-[10px] uppercase tracking-wider font-semibold"
+                className="absolute top-6 left-6 text-text-muted hover:text-text-primary transition-colors cursor-pointer flex items-center gap-1.5 text-[10px] uppercase tracking-wider font-semibold"
+                aria-label="Go back"
               >
                 <ArrowLeft className="h-3 w-3" />
                 <span>Back</span>
               </button>
             )}
 
+            <button
+              onClick={toggleTheme}
+              type="button"
+              className="absolute top-6 right-6 p-1.5 border border-border-primary bg-panel hover:bg-panel-card text-text-secondary hover:text-text-primary rounded-lg transition-all cursor-pointer flex items-center justify-center animate-fadeIn"
+              title={isLight ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
+              aria-label={isLight ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
+            >
+              {isLight ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+            </button>
+
             {isFirstLoginState ? (
               <div className="space-y-6">
                 <div className="space-y-1.5 text-center pt-2">
-                  <h2 className="text-sm font-black tracking-widest text-white uppercase">Force Password Reset</h2>
-                  <p className="text-[10px] text-zinc-500 uppercase tracking-wider">Configure your new credentials to authorize node access</p>
+                  <h2 className="text-sm font-black tracking-widest text-text-primary uppercase">Force Password Reset</h2>
+                  <p className="text-[10px] text-text-muted uppercase tracking-wider">Configure your new credentials to authorize node access</p>
                 </div>
 
                 {error && (
-                  <div className="p-3 bg-zinc-950 border border-zinc-900 text-zinc-300 text-[11px] uppercase tracking-wider rounded-lg flex items-center gap-2">
-                    <ShieldAlert className="h-4 w-4 shrink-0 text-zinc-400" />
+                  <div className="p-3 bg-panel-card border border-border-primary text-text-secondary text-[11px] uppercase tracking-wider rounded-lg flex items-center gap-2">
+                    <ShieldAlert className="h-4 w-4 shrink-0 text-text-muted" />
                     <span>{error}</span>
                   </div>
                 )}
 
                 <form onSubmit={resetForm.handleSubmit(onResetSubmit)} className="space-y-4">
                   <div className="space-y-1.5">
-                    <label className="text-[10px] font-black text-zinc-400 uppercase tracking-wider block">
+                    <label className="text-[10px] font-black text-text-secondary uppercase tracking-wider block">
                       New Secure Password
                     </label>
                     <input
@@ -596,17 +623,17 @@ export const Login: React.FC = () => {
                       placeholder="••••••••••••"
                       {...resetForm.register('newPassword')}
                       disabled={isAuthenticating}
-                      className="w-full bg-[#000000] border border-zinc-800 text-white placeholder-zinc-700 rounded-xl px-4 py-3 text-xs focus:border-[#FFFFFF] focus:outline-none transition-all font-mono"
+                      className="w-full bg-background border border-border-primary text-text-primary placeholder-text-muted rounded-xl px-4 py-3 text-xs focus:border-text-primary focus:outline-none transition-all font-mono"
                     />
                     {resetForm.formState.errors.newPassword && (
-                      <p className="text-[10px] text-zinc-400 flex items-center gap-1 mt-1 uppercase tracking-wide">
+                      <p className="text-[10px] text-text-muted flex items-center gap-1 mt-1 uppercase tracking-wide">
                         <ShieldAlert className="h-3.5 w-3.5 shrink-0" /> {resetForm.formState.errors.newPassword.message}
                       </p>
                     )}
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-[10px] font-black text-zinc-400 uppercase tracking-wider block">
+                    <label className="text-[10px] font-black text-text-secondary uppercase tracking-wider block">
                       Confirm New Password
                     </label>
                     <input
@@ -614,10 +641,10 @@ export const Login: React.FC = () => {
                       placeholder="••••••••••••"
                       {...resetForm.register('confirmPassword')}
                       disabled={isAuthenticating}
-                      className="w-full bg-[#000000] border border-zinc-800 text-white placeholder-zinc-700 rounded-xl px-4 py-3 text-xs focus:border-[#FFFFFF] focus:outline-none transition-all font-mono"
+                      className="w-full bg-background border border-border-primary text-text-primary placeholder-text-muted rounded-xl px-4 py-3 text-xs focus:border-text-primary focus:outline-none transition-all font-mono"
                     />
                     {resetForm.formState.errors.confirmPassword && (
-                      <p className="text-[10px] text-zinc-400 flex items-center gap-1 mt-1 uppercase tracking-wide">
+                      <p className="text-[10px] text-text-muted flex items-center gap-1 mt-1 uppercase tracking-wide">
                         <ShieldAlert className="h-3.5 w-3.5 shrink-0" /> {resetForm.formState.errors.confirmPassword.message}
                       </p>
                     )}
@@ -626,7 +653,8 @@ export const Login: React.FC = () => {
                   <button
                     type="submit"
                     disabled={isAuthenticating}
-                    className="w-full mt-2 bg-[#FFFFFF] hover:bg-[#000000] hover:text-[#FFFFFF] border border-[#FFFFFF] text-[#000000] font-black py-3 rounded-xl transition-all duration-300 text-[10px] uppercase tracking-widest cursor-pointer flex items-center justify-center gap-2"
+                    className="w-full mt-2 bg-text-primary hover:bg-background hover:text-text-primary border border-text-primary text-background font-black py-3 rounded-xl transition-all duration-300 text-[10px] uppercase tracking-widest cursor-pointer flex items-center justify-center gap-2"
+                    aria-label="Reset password and authenticate"
                   >
                     {isAuthenticating ? (
                       <>
@@ -641,12 +669,12 @@ export const Login: React.FC = () => {
               </div>
             ) : (
               <div className="space-y-6">
-                <div className="flex border-b border-zinc-900 justify-center">
+                <div className="flex border-b border-border-primary justify-center">
                   <button
                     type="button"
                     onClick={() => { setAuthMode('login'); setError(''); }}
                     className={`pb-3.5 px-6 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all ${
-                      authMode === 'login' ? 'border-white text-white' : 'border-transparent text-zinc-550 hover:text-white'
+                      authMode === 'login' ? 'border-text-primary text-text-primary' : 'border-transparent text-text-muted hover:text-text-primary'
                     }`}
                   >
                     Login
@@ -655,7 +683,7 @@ export const Login: React.FC = () => {
                     type="button"
                     onClick={() => { setAuthMode('register'); setError(''); }}
                     className={`pb-3.5 px-6 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all ${
-                      authMode === 'register' ? 'border-white text-white' : 'border-transparent text-zinc-550 hover:text-white'
+                      authMode === 'register' ? 'border-text-primary text-text-primary' : 'border-transparent text-text-muted hover:text-text-primary'
                     }`}
                   >
                     Register Workspace
@@ -663,8 +691,8 @@ export const Login: React.FC = () => {
                 </div>
 
                 {error && (
-                  <div className="p-3 bg-zinc-950 border border-zinc-900 text-zinc-300 text-[11px] uppercase tracking-wider rounded-lg flex items-center gap-2">
-                    <ShieldAlert className="h-4 w-4 shrink-0 text-zinc-400" />
+                  <div className="p-3 bg-panel-card border border-border-primary text-text-secondary text-[11px] uppercase tracking-wider rounded-lg flex items-center gap-2">
+                    <ShieldAlert className="h-4 w-4 shrink-0 text-text-muted" />
                     <span>{error}</span>
                   </div>
                 )}
@@ -672,7 +700,7 @@ export const Login: React.FC = () => {
                 {authMode === 'login' ? (
                   <form onSubmit={loginForm.handleSubmit(onLoginSubmit)} className="space-y-4 pt-1">
                     <div className="space-y-1.5">
-                      <label className="text-[10px] font-black text-zinc-400 uppercase tracking-wider block">
+                      <label className="text-[10px] font-black text-text-secondary uppercase tracking-wider block">
                         Workspace Tenant
                       </label>
                       <input
@@ -680,17 +708,17 @@ export const Login: React.FC = () => {
                         placeholder="e.g. acme_warehouse"
                         {...loginForm.register('tenant')}
                         disabled={isAuthenticating}
-                        className="w-full bg-[#000000] border border-zinc-800 text-white placeholder-zinc-700 rounded-xl px-4 py-3 text-xs tracking-wider focus:border-[#FFFFFF] focus:outline-none transition-all uppercase"
+                        className="w-full bg-background border border-border-primary text-text-primary placeholder-text-muted rounded-xl px-4 py-3 text-xs tracking-wider focus:border-text-primary focus:outline-none transition-all uppercase"
                       />
                       {loginForm.formState.errors.tenant && (
-                        <p className="text-[10px] text-zinc-400 flex items-center gap-1 mt-1 uppercase tracking-wide">
+                        <p className="text-[10px] text-text-muted flex items-center gap-1 mt-1 uppercase tracking-wide">
                           <ShieldAlert className="h-3.5 w-3.5 shrink-0" /> {loginForm.formState.errors.tenant.message}
                         </p>
                       )}
                     </div>
 
                     <div className="space-y-1.5">
-                      <label className="text-[10px] font-black text-zinc-400 uppercase tracking-wider block">
+                      <label className="text-[10px] font-black text-text-secondary uppercase tracking-wider block">
                         Security Email
                       </label>
                       <input
@@ -698,17 +726,17 @@ export const Login: React.FC = () => {
                         placeholder="operator@synq.to"
                         {...loginForm.register('email')}
                         disabled={isAuthenticating}
-                        className="w-full bg-[#000000] border border-zinc-800 text-white placeholder-zinc-700 rounded-xl px-4 py-3 text-xs tracking-wider focus:border-[#FFFFFF] focus:outline-none transition-all font-mono"
+                        className="w-full bg-background border border-border-primary text-text-primary placeholder-text-muted rounded-xl px-4 py-3 text-xs tracking-wider focus:border-text-primary focus:outline-none transition-all font-mono"
                       />
                       {loginForm.formState.errors.email && (
-                        <p className="text-[10px] text-zinc-400 flex items-center gap-1 mt-1 uppercase tracking-wide">
+                        <p className="text-[10px] text-text-muted flex items-center gap-1 mt-1 uppercase tracking-wide">
                           <ShieldAlert className="h-3.5 w-3.5 shrink-0" /> {loginForm.formState.errors.email.message}
                         </p>
                       )}
                     </div>
 
                     <div className="space-y-1.5">
-                      <label className="text-[10px] font-black text-zinc-450 uppercase tracking-wider block">
+                      <label className="text-[10px] font-black text-text-secondary uppercase tracking-wider block">
                         Access Pass
                       </label>
                       <input
@@ -716,10 +744,10 @@ export const Login: React.FC = () => {
                         placeholder="••••••••••••"
                         {...loginForm.register('password')}
                         disabled={isAuthenticating}
-                        className="w-full bg-[#000000] border border-zinc-800 text-white placeholder-zinc-700 rounded-xl px-4 py-3 text-xs tracking-wider focus:border-[#FFFFFF] focus:outline-none transition-all font-mono"
+                        className="w-full bg-background border border-border-primary text-text-primary placeholder-text-muted rounded-xl px-4 py-3 text-xs tracking-wider focus:border-text-primary focus:outline-none transition-all font-mono"
                       />
                       {loginForm.formState.errors.password && (
-                        <p className="text-[10px] text-zinc-400 flex items-center gap-1 mt-1 uppercase tracking-wide">
+                        <p className="text-[10px] text-text-muted flex items-center gap-1 mt-1 uppercase tracking-wide">
                           <ShieldAlert className="h-3.5 w-3.5 shrink-0" /> {loginForm.formState.errors.password.message}
                         </p>
                       )}
@@ -728,7 +756,8 @@ export const Login: React.FC = () => {
                     <button
                       type="submit"
                       disabled={isAuthenticating}
-                      className="w-full mt-2 bg-[#FFFFFF] hover:bg-[#000000] hover:text-[#FFFFFF] border border-[#FFFFFF] text-[#000000] font-black py-3 rounded-xl transition-all duration-300 text-[10px] uppercase tracking-widest cursor-pointer flex items-center justify-center gap-2"
+                      className="w-full mt-2 bg-text-primary hover:bg-background hover:text-text-primary border border-text-primary text-background font-black py-3 rounded-xl transition-all duration-300 text-[10px] uppercase tracking-widest cursor-pointer flex items-center justify-center gap-2"
+                      aria-label="Authenticate session"
                     >
                       {isAuthenticating ? (
                         <>
@@ -741,24 +770,25 @@ export const Login: React.FC = () => {
                     </button>
 
                     <div className="relative flex py-2 items-center">
-                      <div className="flex-grow border-t border-zinc-900"></div>
-                      <span className="flex-shrink mx-4 text-zinc-600 text-[9px] uppercase tracking-widest font-black">OR</span>
-                      <div className="flex-grow border-t border-zinc-900"></div>
+                      <div className="flex-grow border-t border-border-primary"></div>
+                      <span className="flex-shrink mx-4 text-text-muted text-[9px] uppercase tracking-widest font-black">OR</span>
+                      <div className="flex-grow border-t border-border-primary"></div>
                     </div>
 
                     <button
                       type="button"
                       onClick={() => setShowGoogleModal(true)}
-                      className="w-full bg-transparent hover:bg-zinc-950 border border-zinc-800 text-white font-black py-3 rounded-xl transition-all duration-200 text-[10px] uppercase tracking-widest cursor-pointer flex items-center justify-center gap-2"
+                      className="w-full bg-transparent hover:bg-panel border border-border-primary text-text-primary font-black py-3 rounded-xl transition-all duration-200 text-[10px] uppercase tracking-widest cursor-pointer flex items-center justify-center gap-2"
+                      aria-label="Sign in with Google"
                     >
-                      <Globe className="h-3.5 w-3.5 text-zinc-400" />
+                      <Globe className="h-3.5 w-3.5 text-text-muted" />
                       <span>Sign in with Google</span>
                     </button>
                   </form>
                 ) : (
                   <form onSubmit={registerForm.handleSubmit(onRegisterSubmit)} className="space-y-4 pt-1">
                     <div className="space-y-1.5">
-                      <label className="text-[10px] font-black text-zinc-400 uppercase tracking-wider block">
+                      <label className="text-[10px] font-black text-text-secondary uppercase tracking-wider block">
                         Workspace Name
                       </label>
                       <input
@@ -766,17 +796,17 @@ export const Login: React.FC = () => {
                         placeholder="e.g. Lenovo"
                         {...registerForm.register('tenant')}
                         disabled={isAuthenticating}
-                        className="w-full bg-[#000000] border border-zinc-800 text-white placeholder-zinc-700 rounded-xl px-4 py-3 text-xs tracking-wider focus:border-[#FFFFFF] focus:outline-none transition-all uppercase"
+                        className="w-full bg-background border border-border-primary text-text-primary placeholder-text-muted rounded-xl px-4 py-3 text-xs tracking-wider focus:border-text-primary focus:outline-none transition-all uppercase"
                       />
                       {registerForm.formState.errors.tenant && (
-                        <p className="text-[10px] text-zinc-400 flex items-center gap-1 mt-1 uppercase tracking-wide">
+                        <p className="text-[10px] text-text-muted flex items-center gap-1 mt-1 uppercase tracking-wide">
                           <ShieldAlert className="h-3.5 w-3.5 shrink-0" /> {registerForm.formState.errors.tenant.message}
                         </p>
                       )}
                     </div>
 
                     <div className="space-y-1.5">
-                      <label className="text-[10px] font-black text-zinc-400 uppercase tracking-wider block">
+                      <label className="text-[10px] font-black text-text-secondary uppercase tracking-wider block">
                         Operator Username
                       </label>
                       <input
@@ -784,17 +814,17 @@ export const Login: React.FC = () => {
                         placeholder="e.g. aditya"
                         {...registerForm.register('username')}
                         disabled={isAuthenticating}
-                        className="w-full bg-[#000000] border border-zinc-800 text-white placeholder-zinc-700 rounded-xl px-4 py-3 text-xs tracking-wider focus:border-[#FFFFFF] focus:outline-none transition-all"
+                        className="w-full bg-background border border-border-primary text-text-primary placeholder-text-muted rounded-xl px-4 py-3 text-xs tracking-wider focus:border-text-primary focus:outline-none transition-all"
                       />
                       {registerForm.formState.errors.username && (
-                        <p className="text-[10px] text-zinc-400 flex items-center gap-1 mt-1 uppercase tracking-wide">
+                        <p className="text-[10px] text-text-muted flex items-center gap-1 mt-1 uppercase tracking-wide">
                           <ShieldAlert className="h-3.5 w-3.5 shrink-0" /> {registerForm.formState.errors.username.message}
                         </p>
                       )}
                     </div>
 
                     <div className="space-y-1.5">
-                      <label className="text-[10px] font-black text-zinc-400 uppercase tracking-wider block">
+                      <label className="text-[10px] font-black text-text-secondary uppercase tracking-wider block">
                         Operator Email
                       </label>
                       <input
@@ -802,17 +832,17 @@ export const Login: React.FC = () => {
                         placeholder="aditya@lenovo.com"
                         {...registerForm.register('email')}
                         disabled={isAuthenticating}
-                        className="w-full bg-[#000000] border border-zinc-800 text-white placeholder-zinc-700 rounded-xl px-4 py-3 text-xs tracking-wider focus:border-[#FFFFFF] focus:outline-none transition-all font-mono"
+                        className="w-full bg-background border border-border-primary text-text-primary placeholder-text-muted rounded-xl px-4 py-3 text-xs tracking-wider focus:border-text-primary focus:outline-none transition-all font-mono"
                       />
                       {registerForm.formState.errors.email && (
-                        <p className="text-[10px] text-zinc-400 flex items-center gap-1 mt-1 uppercase tracking-wide">
+                        <p className="text-[10px] text-text-muted flex items-center gap-1 mt-1 uppercase tracking-wide">
                           <ShieldAlert className="h-3.5 w-3.5 shrink-0" /> {registerForm.formState.errors.email.message}
                         </p>
                       )}
                     </div>
 
                     <div className="space-y-1.5">
-                      <label className="text-[10px] font-black text-zinc-450 uppercase tracking-wider block">
+                      <label className="text-[10px] font-black text-text-secondary uppercase tracking-wider block">
                         Password
                       </label>
                       <input
@@ -820,10 +850,10 @@ export const Login: React.FC = () => {
                         placeholder="••••••••••••"
                         {...registerForm.register('password')}
                         disabled={isAuthenticating}
-                        className="w-full bg-[#000000] border border-zinc-800 text-white placeholder-zinc-700 rounded-xl px-4 py-3 text-xs tracking-wider focus:border-[#FFFFFF] focus:outline-none transition-all font-mono"
+                        className="w-full bg-background border border-border-primary text-text-primary placeholder-text-muted rounded-xl px-4 py-3 text-xs tracking-wider focus:border-text-primary focus:outline-none transition-all font-mono"
                       />
                       {registerForm.formState.errors.password && (
-                        <p className="text-[10px] text-zinc-400 flex items-center gap-1 mt-1 uppercase tracking-wide">
+                        <p className="text-[10px] text-text-muted flex items-center gap-1 mt-1 uppercase tracking-wide">
                           <ShieldAlert className="h-3.5 w-3.5 shrink-0" /> {registerForm.formState.errors.password.message}
                         </p>
                       )}
@@ -832,7 +862,8 @@ export const Login: React.FC = () => {
                     <button
                       type="submit"
                       disabled={isAuthenticating}
-                      className="w-full mt-2 bg-[#FFFFFF] hover:bg-[#000000] hover:text-[#FFFFFF] border border-[#FFFFFF] text-[#000000] font-black py-3 rounded-xl transition-all duration-300 text-[10px] uppercase tracking-widest cursor-pointer flex items-center justify-center gap-2"
+                      className="w-full mt-2 bg-text-primary hover:bg-background hover:text-text-primary border border-text-primary text-background font-black py-3 rounded-xl transition-all duration-300 text-[10px] uppercase tracking-widest cursor-pointer flex items-center justify-center gap-2"
+                      aria-label="Create workspace and register owner"
                     >
                       {isAuthenticating ? (
                         <>
@@ -848,8 +879,8 @@ export const Login: React.FC = () => {
               </div>
             )}
 
-            <div className="text-center pt-2 flex items-center justify-center gap-1.5 text-zinc-600 text-[10px] border-t border-zinc-900 pt-4 uppercase tracking-wider font-semibold">
-              <Lock className="h-3 w-3 text-zinc-650" />
+            <div className="text-center flex items-center justify-center gap-1.5 text-text-muted text-[10px] border-t border-border-primary pt-4 uppercase tracking-wider font-semibold">
+              <Lock className="h-3 w-3 text-text-muted" />
               <span>Secure Enterprise Node</span>
             </div>
 
@@ -858,22 +889,32 @@ export const Login: React.FC = () => {
       )}
 
       {showGoogleModal && (
-        <div className="fixed inset-0 flex items-center justify-center z-55 bg-black/85 backdrop-blur-md px-4">
+        <div className="fixed inset-0 flex items-center justify-center z-55 bg-background/85 backdrop-blur-md px-4">
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="w-full max-w-sm bg-[#09090B] border border-zinc-900 rounded-3xl p-8 space-y-6 shadow-2xl relative font-sans"
+            className="w-full max-w-sm bg-panel border border-border-primary rounded-3xl p-8 space-y-6 shadow-2xl relative font-sans animate-fadeIn"
           >
+            <button
+              onClick={toggleTheme}
+              type="button"
+              className="absolute top-6 right-6 p-1.5 border border-border-primary bg-panel hover:bg-panel-card text-text-secondary hover:text-text-primary rounded-lg transition-all cursor-pointer flex items-center justify-center animate-fadeIn"
+              title={isLight ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
+              aria-label={isLight ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
+            >
+              {isLight ? <Moon className="h-3.5 w-3.5" /> : <Sun className="h-3.5 w-3.5" />}
+            </button>
+
             <div className="space-y-1.5 text-center">
-              <h3 className="text-xs font-black tracking-widest text-white uppercase">Google OAuth Node</h3>
-              <p className="text-[9px] text-zinc-500 uppercase tracking-wider">Simulated Federated Identity Authorization</p>
+              <h3 className="text-xs font-black tracking-widest text-text-primary uppercase">Google OAuth Node</h3>
+              <p className="text-[9px] text-text-muted uppercase tracking-wider">Simulated Federated Identity Authorization</p>
             </div>
 
             <form onSubmit={handleGoogleSubmit} className="space-y-4">
               <div className="space-y-1.5">
-                <label className="text-[9px] font-black text-zinc-400 uppercase tracking-wider block">Account Name</label>
+                <label className="text-[9px] font-black text-text-secondary uppercase tracking-wider block">Account Name</label>
                 <div className="relative">
-                  <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-zinc-600">
+                  <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-text-muted">
                     <User className="h-3.5 w-3.5" />
                   </span>
                   <input
@@ -882,15 +923,15 @@ export const Login: React.FC = () => {
                     placeholder="Anshika"
                     value={googleName}
                     onChange={e => setGoogleName(e.target.value)}
-                    className="w-full bg-[#000000] border border-zinc-800 text-white placeholder-zinc-700 rounded-xl pl-9 pr-4 py-2.5 text-xs focus:border-[#FFFFFF] focus:outline-none transition-all"
+                    className="w-full bg-background border border-border-primary text-text-primary placeholder-text-muted rounded-xl pl-9 pr-4 py-2.5 text-xs focus:border-text-primary focus:outline-none transition-all"
                   />
                 </div>
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-[9px] font-black text-zinc-400 uppercase tracking-wider block">Email Address</label>
+                <label className="text-[9px] font-black text-text-secondary uppercase tracking-wider block">Email Address</label>
                 <div className="relative">
-                  <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-zinc-600">
+                  <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-text-muted">
                     <Mail className="h-3.5 w-3.5 font-bold" />
                   </span>
                   <input
@@ -899,7 +940,7 @@ export const Login: React.FC = () => {
                     placeholder="anshika@lenovo.com"
                     value={googleEmail}
                     onChange={e => setGoogleEmail(e.target.value)}
-                    className="w-full bg-[#000000] border border-zinc-800 text-white placeholder-zinc-700 rounded-xl pl-9 pr-4 py-2.5 text-xs focus:border-[#FFFFFF] focus:outline-none transition-all font-mono"
+                    className="w-full bg-background border border-border-primary text-text-primary placeholder-text-muted rounded-xl pl-9 pr-4 py-2.5 text-xs focus:border-text-primary focus:outline-none transition-all font-mono"
                   />
                 </div>
               </div>
@@ -908,14 +949,14 @@ export const Login: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setShowGoogleModal(false)}
-                  className="flex-1 py-2.5 bg-transparent hover:bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white rounded-xl text-[10px] font-black uppercase tracking-widest cursor-pointer"
+                  className="flex-1 py-2.5 bg-transparent hover:bg-panel border border-border-primary text-text-secondary hover:text-text-primary rounded-xl text-[10px] font-black uppercase tracking-widest cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isAuthenticating}
-                  className="flex-1 py-2.5 bg-[#FFFFFF] hover:bg-[#000000] hover:text-[#FFFFFF] border border-[#FFFFFF] text-[#000000] rounded-xl text-[10px] font-black uppercase tracking-widest cursor-pointer flex items-center justify-center gap-1.5"
+                  className="flex-1 py-2.5 bg-text-primary hover:bg-background hover:text-text-primary border border-text-primary text-background rounded-xl text-[10px] font-black uppercase tracking-widest cursor-pointer flex items-center justify-center gap-1.5"
                 >
                   {isAuthenticating ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Sign In'}
                 </button>
