@@ -6,7 +6,6 @@ from sqlalchemy import BOOLEAN, DATETIME, FLOAT, INTEGER, TEXT, Column, MetaData
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
 from backend.utils.logging import logger
-from backend.utils.tunneling import ssh_tunnel_context
 from backend.workers.celery_app import app as celery_app
 from backend.workers.extractors import extract_records_generator
 
@@ -386,22 +385,6 @@ async def run_pipeline_orchestration(pipeline_config: Dict[str, Any]) -> int:
         ssh_enabled=target_config.get("sshEnabled", False),
     )
     try:
-        if target_config.get("sshEnabled", False):
-            with ssh_tunnel_context(
-                bastion_host=str(target_config.get("bastionHost", "")).strip(),
-                bastion_user=str(target_config.get("bastionUser", "")).strip(),
-                decrypted_pem_key=str(target_config.get("pemKeyContent", "")),
-                remote_db_host=str(target_config.get("host", "")).strip(),
-                remote_db_port=remote_db_port,
-                ssh_port=int(target_config.get("bastionPort", 22)),
-            ) as local_port:
-                return await _run_with_engine(
-                    target_config=target_config,
-                    table_name=table_name,
-                    schema_mapping=schema_mapping,
-                    records_generator=records_generator,
-                    override_port=local_port,
-                )
         return await _run_with_engine(
             target_config=target_config,
             table_name=table_name,
