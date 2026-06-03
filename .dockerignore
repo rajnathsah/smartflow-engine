@@ -1,15 +1,48 @@
-node_modules
-npm-debug.log
-.git
-.gitignore
+# ─── Python ──────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+*.db
+
+# ─── Node / Frontend ──────────────────────────────────
+node_modules/
+dist/
+.next/
+.nuxt/
+.output/
+*.local
+
+# ─── Environment & Secrets ───────────────────────────
 .env
-.env.local
+.env.*
+!.env.example
+
+# ─── IDE & OS ────────────────────────────────────────
 .DS_Store
-__pycache__
-*.pyc
-venv
-.vscode
-.idea
-.pytest_cache
-coverage
+Thumbs.db
+.vscode/
+.idea/
+*.suo
+*.sw?
+
+# ─── Test Caches ──────────────────────────────────────
+.pytest_cache/
+coverage/
 .coverage
+htmlcov/
+
+# ─── Git ──────────────────────────────────────────────
+.git/
+.gitkeep
+
+# ─── Logs ──────────────────────────────────────────────
+logs/
+*.log
+npm-debug.log*

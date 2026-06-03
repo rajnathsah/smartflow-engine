@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <rect width="100" height="100" rx="24" fill="#000000" />
+  <!-- Stark isometric 'S' path representing structured flow -->
+  <path d="M 32 35 L 68 35 L 68 50 L 32 50 L 32 65 L 68 65" 
+        fill="none" 
+        stroke="#ffffff" 
+        stroke-width="10" 
+        stroke-linecap="square" 
+        stroke-linejoin="miter" />
+  <!-- Single data node accent representing dynamic schema/ETL packet -->
+  <rect x="62" y="44" width="12" height="12" fill="#ffffff" />
+</svg>

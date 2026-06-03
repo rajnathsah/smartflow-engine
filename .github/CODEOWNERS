@@ -3,25 +3,3 @@
 
 # Global code owner - rajnathsah must approve all changes
 * @rajnathsah
-
-# Frontend specific ownership
-frontend/ @rajnathsah
-
-# Backend specific ownership
-backend/ @rajnathsah
-
-# Docker and DevOps ownership
-docker/ @rajnathsah
-Dockerfile* @rajnathsah
-
-# Tests ownership
-tests/ @rajnathsah
-
-# Documentation ownership
-docs/ @rajnathsah
-README.md @rajnathsah
-
-# Configuration files
-.env.example @rajnathsah
-.gitignore @rajnathsah
-.dockerignore @rajnathsah
