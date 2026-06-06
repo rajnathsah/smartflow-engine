@@ -16,7 +16,9 @@ from backend.schemas.pipelines import (
     AuthDriverRequest,
     AuthDriverResponse,
     ActiveSchemaResponse,
-    DeleteResponse
+    DeleteResponse,
+    PipelineRequest,
+    PipelineResponse
 )
 from backend.services.pipeline_service import PipelineService
 from sqlalchemy.orm import Session
@@ -85,6 +87,26 @@ async def update_connection(id: str, payload: ConnectionRequest, pipeline_servic
 @router.delete("/connections/{id}", response_model=DeleteResponse, dependencies=[Depends(check_write_permission)])
 async def delete_connection(id: str, pipeline_service: PipelineService = Depends(get_pipeline_service)):
     return pipeline_service.delete_tenant_row("connections", id)
+
+@router.get("/pipelines", response_model=List[PipelineResponse])
+async def list_pipelines(pipeline_service: PipelineService = Depends(get_pipeline_service)):
+    return pipeline_service.read_tenant_rows("pipelines")
+
+@router.get("/pipelines/{id}", response_model=PipelineResponse)
+async def get_pipeline(id: str, pipeline_service: PipelineService = Depends(get_pipeline_service)):
+    return pipeline_service.read_tenant_row("pipelines", id)
+
+@router.post("/pipelines", response_model=PipelineResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(check_write_permission)])
+async def save_pipeline(payload: PipelineRequest, pipeline_service: PipelineService = Depends(get_pipeline_service)):
+    return pipeline_service.create_pipeline(payload.model_dump())
+
+@router.put("/pipelines/{id}", response_model=PipelineResponse, dependencies=[Depends(check_write_permission)])
+async def update_pipeline(id: str, payload: PipelineRequest, pipeline_service: PipelineService = Depends(get_pipeline_service)):
+    return pipeline_service.update_tenant_row("pipelines", id, payload.model_dump())
+
+@router.delete("/pipelines/{id}", response_model=DeleteResponse, dependencies=[Depends(check_write_permission)])
+async def delete_pipeline(id: str, pipeline_service: PipelineService = Depends(get_pipeline_service)):
+    return pipeline_service.delete_tenant_row("pipelines", id)
 
 @router.get("/logs", response_model=List[LogResponse])
 async def list_logs(pipeline_service: PipelineService = Depends(get_pipeline_service)):

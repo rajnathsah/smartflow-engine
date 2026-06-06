@@ -567,11 +567,40 @@ export const Login: React.FC = () => {
               />
             </div>
           </div>
+
+          {/* Landing Page Footer */}
+          <footer className="w-full py-12 border-t border-border-primary bg-panel mt-32 z-10 select-none">
+            <div className="max-w-5xl mx-auto px-8 flex flex-col md:flex-row items-center justify-between gap-6 text-[10px] font-semibold uppercase tracking-wider text-text-muted">
+              <div className="flex items-center gap-1.5 text-text-primary">
+                <span className="font-bold">synq.to</span>
+                <span className="opacity-50">|</span>
+                <span className="text-text-muted">© {new Date().getFullYear()} All rights reserved.</span>
+              </div>
+              
+              <div className="flex flex-wrap items-center justify-center gap-8">
+                <a href="#" className="hover:text-text-primary transition-colors">Privacy Policy</a>
+                <a href="#" className="hover:text-text-primary transition-colors">Terms of Service</a>
+                <a href="#" className="hover:text-text-primary transition-colors">Security Statement</a>
+              </div>
+
+              <div className="flex items-center gap-6">
+                <div className="flex items-center gap-1 hover:text-text-primary transition-colors" title="SOC 2 Type II Certified">
+                  <ShieldCheck className="h-4 w-4" />
+                  <span>SOC 2 Type II</span>
+                </div>
+                <div className="flex items-center gap-1 hover:text-text-primary transition-colors" title="GDPR Compliant">
+                  <Globe className="h-4 w-4" />
+                  <span>GDPR Compliant</span>
+                </div>
+              </div>
+            </div>
+          </footer>
         </div>
       )}
 
       {isTransitioned && (
-        <div className="fixed inset-0 flex items-center justify-center z-50 bg-background/75 backdrop-blur-md px-4">
+        <div className="fixed inset-0 flex flex-col items-center justify-between z-50 bg-background/75 backdrop-blur-md px-4 py-8 overflow-y-auto">
+          <div className="h-4 hidden md:block"></div>
           <motion.div
             initial={{ opacity: 0, y: 60 }}
             animate={{ opacity: 1, y: 0 }}
@@ -885,6 +914,28 @@ export const Login: React.FC = () => {
             </div>
 
           </motion.div>
+
+          {/* Login Page Legal Compliance Footer */}
+          <footer className="w-full max-w-md text-center mt-6 text-[10px] font-semibold uppercase tracking-wider text-text-muted flex flex-col gap-3 z-10 select-none">
+            <div className="flex justify-center gap-6">
+              <a href="#" className="hover:text-text-primary transition-colors">Privacy Policy</a>
+              <a href="#" className="hover:text-text-primary transition-colors">Terms of Service</a>
+              <a href="#" className="hover:text-text-primary transition-colors">Security</a>
+            </div>
+            <div className="flex items-center justify-center gap-4 text-text-muted">
+              <div className="flex items-center gap-1 hover:text-text-primary transition-colors">
+                <ShieldCheck className="h-3.5 w-3.5" />
+                <span>SOC 2 Type II</span>
+              </div>
+              <div className="flex items-center gap-1 hover:text-text-primary transition-colors">
+                <Globe className="h-3.5 w-3.5" />
+                <span>GDPR Compliant</span>
+              </div>
+            </div>
+            <div className="text-[9px] opacity-75">
+              © {new Date().getFullYear()} synq.to. All rights reserved.
+            </div>
+          </footer>
         </div>
       )}
 

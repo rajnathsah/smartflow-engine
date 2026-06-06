@@ -83,3 +83,15 @@ class DeleteResponse(BaseModel):
 class MappingsResponse(BaseModel):
     status: str
     message: str
+
+class PipelineRequest(BaseModel):
+    id: Optional[str] = None
+    source_connection_id: str
+    destination_connection_id: str
+    model_config = {"extra": "allow"}
+
+class PipelineResponse(BaseModel):
+    id: str
+    source_connection_id: str
+    destination_connection_id: str
+    model_config = {"extra": "allow"}

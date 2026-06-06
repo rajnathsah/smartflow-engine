@@ -10,14 +10,15 @@ from sqlalchemy.orm import Session
 from backend.utils.logging import logger
 from backend.workers.tasks import sync_pipeline_task
 from backend.workers.celery_app import app as celery_app
-from backend.models import Source, Destination, Connection, Log
+from backend.models import Source, Destination, Connection, Log, Pipeline
 
 def _get_model_class(table: str):
     mapping = {
         "sources": Source,
         "destinations": Destination,
         "connections": Connection,
-        "logs": Log
+        "logs": Log,
+        "pipelines": Pipeline
     }
     cls = mapping.get(table.lower())
     if not cls:
@@ -50,31 +51,92 @@ class PipelineService:
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Connection belongs to another tenant."
             )
+
+        if cls == Pipeline:
+            source_conn_id = item.get("source_connection_id")
+            dest_conn_id = item.get("destination_connection_id")
+            if not source_conn_id or not dest_conn_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Both source_connection_id and destination_connection_id must be provided."
+                )
+            
+            source_exists = self.db.query(Connection).filter((Connection.id == source_conn_id) & (Connection.tenant_id == self.tenant_id)).first()
+            dest_exists = self.db.query(Connection).filter((Connection.id == dest_conn_id) & (Connection.tenant_id == self.tenant_id)).first()
+            
+            if not source_exists:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Source connection with ID '{source_conn_id}' does not exist."
+                )
+            if not dest_exists:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Destination connection with ID '{dest_conn_id}' does not exist."
+                )
+
         now = datetime.utcnow().isoformat()
         data = {**item, "id": item_id, "tenant_id": self.tenant_id}
         if existing:
             existing.data = json.dumps(data)
             existing.updated_at = now
+            if cls == Pipeline:
+                existing.source_connection_id = item.get("source_connection_id")
+                existing.destination_connection_id = item.get("destination_connection_id")
         else:
-            new_row = cls(
-                id=item_id,
-                tenant_id=self.tenant_id,
-                data=json.dumps(data),
-                created_at=now,
-                updated_at=now
-            )
+            kwargs = {
+                "id": item_id,
+                "tenant_id": self.tenant_id,
+                "data": json.dumps(data),
+                "created_at": now,
+                "updated_at": now
+            }
+            if cls == Pipeline:
+                kwargs["source_connection_id"] = item.get("source_connection_id")
+                kwargs["destination_connection_id"] = item.get("destination_connection_id")
+            new_row = cls(**kwargs)
             self.db.add(new_row)
         self.db.commit()
         return data
+
+    def create_pipeline(self, item: Dict[str, Any]) -> Dict[str, Any]:
+        return self.upsert_tenant_row("pipelines", item)
 
     def update_tenant_row(self, table: str, item_id: str, item: Dict[str, Any]) -> Dict[str, Any]:
         self.read_tenant_row(table, item_id)
         cls = _get_model_class(table)
         row = self.db.query(cls).filter((cls.tenant_id == self.tenant_id) & (cls.id == item_id)).first()
+
+        if cls == Pipeline:
+            source_conn_id = item.get("source_connection_id")
+            dest_conn_id = item.get("destination_connection_id")
+            if not source_conn_id or not dest_conn_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Both source_connection_id and destination_connection_id must be provided."
+                )
+            
+            source_exists = self.db.query(Connection).filter((Connection.id == source_conn_id) & (Connection.tenant_id == self.tenant_id)).first()
+            dest_exists = self.db.query(Connection).filter((Connection.id == dest_conn_id) & (Connection.tenant_id == self.tenant_id)).first()
+            
+            if not source_exists:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Source connection with ID '{source_conn_id}' does not exist."
+                )
+            if not dest_exists:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Destination connection with ID '{dest_conn_id}' does not exist."
+                )
+
         now = datetime.utcnow().isoformat()
         data = {**item, "id": item_id, "tenant_id": self.tenant_id}
         row.data = json.dumps(data)
         row.updated_at = now
+        if cls == Pipeline:
+            row.source_connection_id = item.get("source_connection_id")
+            row.destination_connection_id = item.get("destination_connection_id")
         self.db.commit()
         return data
 
