@@ -29,11 +29,14 @@ class Settings(BaseSettings):
     @computed_field
     @property
     def SQLALCHEMY_DATABASE_URI(self) -> PostgresDsn:
+        host = self.POSTGRES_SERVER
+        if host.lower() in ("localhost", "127.0.0.1", "::1") and self.POSTGRES_DOCKER_HOST:
+            host = self.POSTGRES_DOCKER_HOST
         return MultiHostUrl.build(
             scheme="postgresql+psycopg",
             username=self.POSTGRES_USER,
             password=self.POSTGRES_PASSWORD,
-            host=self.POSTGRES_SERVER,
+            host=host,
             port=self.POSTGRES_PORT,
             path=self.POSTGRES_DB,
         )
