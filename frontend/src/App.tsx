@@ -323,7 +323,7 @@ const DashboardLayout = () => {
     { path: '/dashboard', label: 'Overview', icon: Activity },
     { path: '/sources', label: 'Sources', icon: Globe },
     { path: '/destinations', label: 'Destinations', icon: Database },
-    { path: '/pipelines', label: 'Connections', icon: Network },
+    { path: '/pipelines', label: 'Pipelines', icon: Network },
     { path: '/mapper', label: 'Schema Mapper', icon: Sliders },
     { path: '/analysis', label: 'Document AI', icon: BookOpen },
     { path: '/live', label: 'Live Sync', icon: Cpu },
