@@ -4,8 +4,10 @@ from backend.api.deps import get_db, get_current_user_claims
 from backend.services.pipeline_service import PipelineService
 from backend.utils.connection_tester import test_db_connection
 from typing import Dict, Any
+import logging
 
 router = APIRouter(prefix="/api/v1/connections", tags=["connections"])
+logger = logging.getLogger(__name__)
 
 def get_pipeline_service(request: Request, db: Session = Depends(get_db)) -> PipelineService:
     tenant_id = getattr(request.state, "tenant_id", None) or "System Workspace"
@@ -20,8 +22,9 @@ async def test_connection_dry_run(
     try:
         res = await test_db_connection(payload)
         return res
-    except Exception as e:
-        return {"success": False, "message": f"Connection test failed: {str(e)}"}
+    except Exception:
+        logger.exception("Connection dry-run test failed")
+        raise HTTPException(status_code=500, detail="Connection test failed")
 
 @router.post("/{connection_id}/test")
 async def test_connection_saved(
@@ -33,5 +36,6 @@ async def test_connection_saved(
     try:
         res = await pipeline_service.test_connection(connection_id)
         return res
-    except Exception as e:
-        return {"success": False, "message": f"Connection test failed: {str(e)}"}
+    except Exception:
+        logger.exception("Saved connection test failed for connection_id=%s", connection_id)
+        raise HTTPException(status_code=500, detail="Connection test failed")
