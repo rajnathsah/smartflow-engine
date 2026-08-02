@@ -1,10 +1,57 @@
 import asyncio
 import json
+import socket
+import ipaddress
 import httpx
+from urllib.parse import urlparse
 from sqlalchemy import text
 from sqlalchemy.schema import CreateSchema
 from sqlalchemy.sql import quoted_name
 from typing import Dict, Any
+
+def _is_public_ip(ip_str: str) -> bool:
+    ip_obj = ipaddress.ip_address(ip_str)
+    return not (
+        ip_obj.is_private
+        or ip_obj.is_loopback
+        or ip_obj.is_link_local
+        or ip_obj.is_multicast
+        or ip_obj.is_reserved
+        or ip_obj.is_unspecified
+    )
+
+def _validate_outbound_url(raw_url: str) -> str:
+    parsed = urlparse(raw_url)
+
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError("Only http/https URLs are allowed.")
+
+    if not parsed.hostname:
+        raise ValueError("URL must include a valid hostname.")
+
+    host = parsed.hostname
+
+    try:
+        # If host is an IP literal, validate it directly.
+        ipaddress.ip_address(host)
+        if not _is_public_ip(host):
+            raise ValueError("URL resolves to a non-public IP address.")
+    except ValueError:
+        # Not an IP literal (or failed literal parse) - resolve DNS and validate all answers.
+        try:
+            addr_info = socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == "https" else 80))
+        except socket.gaierror:
+            raise ValueError("Hostname could not be resolved.")
+
+        if not addr_info:
+            raise ValueError("Hostname could not be resolved.")
+
+        for entry in addr_info:
+            resolved_ip = entry[4][0]
+            if not _is_public_ip(resolved_ip):
+                raise ValueError("URL resolves to a non-public IP address.")
+
+    return raw_url
 
 async def test_db_connection(config: Dict[str, Any]) -> Dict[str, Any]:
     """Attempts to connect to a REST API url or database using config parameters with a strict timeout."""
@@ -14,6 +61,14 @@ async def test_db_connection(config: Dict[str, Any]) -> Dict[str, Any]:
     if is_source:
         # Test REST API source connection
         url = config.get("sourceUrl", "")
+        try:
+            validated_url = _validate_outbound_url(url)
+        except ValueError as url_exc:
+            return {
+                "success": False,
+                "message": f"Invalid source URL: {str(url_exc)}"
+            }
+
         auth_type = config.get("sourceAuthType", "none")
         token = config.get("sourceToken", "")
         headers_list = config.get("sourceHeaders", [])
@@ -34,7 +89,7 @@ async def test_db_connection(config: Dict[str, Any]) -> Dict[str, Any]:
         
         try:
             async with httpx.AsyncClient(timeout=4.5) as client:
-                response = await client.get(url, headers=headers)
+                response = await client.get(validated_url, headers=headers)
                 return {
                     "success": True,
                     "message": f"Connection verified. HTTP Status {response.status_code}"
