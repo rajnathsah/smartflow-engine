@@ -1,60 +1,91 @@
-import React from 'react'
-import { Plus, Database } from 'lucide-react'
+import React, { useState } from 'react'
+import { Plus, Database, Loader2, Pencil, Plug, ShieldAlert, CheckCircle2 } from 'lucide-react'
 import type { Destination } from '@/types'
+import { notify } from '@/lib/notify'
+import apiClient from '@/api/client'
 
 interface DestinationsPanelProps {
   destinations: Destination[]
   onCreateClick: () => void
+  onEditClick: (dest: Destination) => void
   canWrite: boolean
 }
 
 const DestinationsPanel: React.FC<DestinationsPanelProps> = ({
   destinations,
   onCreateClick,
+  onEditClick,
   canWrite
 }) => {
+  const [testingIds, setTestingIds] = useState<Record<string, boolean>>({})
+  const [statuses, setStatuses] = useState<Record<string, { status: 'success' | 'failed'; message: string }>>({})
+
+  const handleTest = async (id: string, name: string) => {
+    setTestingIds(prev => ({ ...prev, [id]: true }))
+    try {
+      const res = await apiClient.post(`/api/v1/pipelines/connections/${id}/test`)
+      if (res.data.status === 'success') {
+        setStatuses(prev => ({ ...prev, [id]: { status: 'success', message: 'Connected successfully' } }))
+        notify.success(
+          'Connection Verified!',
+          `Successfully connected to host database for target '${name}'.`
+        )
+      } else {
+        const errorMsg = res.data.message || 'Database connection failed.'
+        setStatuses(prev => ({ ...prev, [id]: { status: 'failed', message: errorMsg } }))
+        notify.error('Connection Failed', errorMsg)
+      }
+    } catch (err: any) {
+      const errorMsg = err.response?.data?.detail || 'Unreachable target database.'
+      setStatuses(prev => ({ ...prev, [id]: { status: 'failed', message: errorMsg } }))
+      notify.error('Connection Verification Failed', errorMsg)
+    } finally {
+      setTestingIds(prev => ({ ...prev, [id]: false }))
+    }
+  }
+
   return (
-    <div className="space-y-8 max-w-5xl">
-      <div className="flex items-center justify-between">
+    <div className="space-y-8 w-full">
+      <div className="flex items-center justify-between w-full mb-6">
         <div>
           <h2 className="text-lg font-semibold tracking-tight text-text-primary">Data Destinations</h2>
           <p className="text-sm text-text-muted">Register and configure target SQL databases for data syncs.</p>
         </div>
-        <button
-          onClick={onCreateClick}
-          disabled={!canWrite}
-          className="flex items-center gap-2 px-3.5 py-2 bg-text-primary text-background font-medium hover:opacity-90 text-xs rounded-lg transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-          title={!canWrite ? 'You do not have permission to create destinations' : undefined}
-          aria-label="Create Destination"
-        >
-          <Plus className="h-4 w-4 font-bold" />
-          Create Destination
-        </button>
+        {canWrite && (
+          <button
+            onClick={onCreateClick}
+            className="flex items-center gap-2 px-3.5 py-2 bg-text-primary text-background font-medium hover:opacity-90 text-xs rounded-lg transition-all cursor-pointer"
+            aria-label="Create Destination"
+          >
+            <Plus className="h-4 w-4 font-bold" />
+            Create Destination
+          </button>
+        )}
       </div>
 
       {destinations.length === 0 ? (
-        <div className="bg-panel border border-border-primary rounded-xl p-16 text-center max-w-5xl mx-auto space-y-5">
+        <div className="bg-white dark:bg-[#0F0F0F] border border-gray-200 dark:border-white/10 rounded-xl p-16 text-center w-full space-y-5">
           <div className="flex justify-center">
-            <div className="h-20 w-20 bg-panel-card border border-border-primary rounded-full flex items-center justify-center">
-              <Database className="h-10 w-10 text-text-muted" />
+            <div className="h-20 w-20 bg-gray-50 dark:bg-[#1A1A1A] border border-gray-200 dark:border-white/10 rounded-full flex items-center justify-center">
+              <Database className="h-10 w-10 text-gray-400 dark:text-gray-500" />
             </div>
           </div>
           <div className="space-y-2 max-w-sm mx-auto">
-            <h3 className="text-sm font-semibold text-text-primary">No Active Destinations</h3>
-            <p className="text-xs text-text-muted leading-relaxed">
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-white">No Active Destinations</h3>
+            <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
               Register MySQL or PostgreSQL endpoints to load your extracted api payloads.
             </p>
           </div>
-          <button
-            onClick={onCreateClick}
-            disabled={!canWrite}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-text-primary text-background font-medium hover:opacity-90 text-xs rounded transition-all duration-150 cursor-pointer shadow-lg disabled:opacity-30 disabled:cursor-not-allowed"
-            title={!canWrite ? 'You do not have permission to create destinations' : undefined}
-            aria-label="Create New Destination"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Create Destination
-          </button>
+          {canWrite && (
+            <button
+              onClick={onCreateClick}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-gray-900 dark:bg-white text-white dark:text-black font-semibold hover:bg-black dark:hover:bg-gray-100 text-xs rounded transition-all duration-150 cursor-pointer shadow-lg"
+              aria-label="Create New Destination"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Create Destination
+            </button>
+          )}
         </div>
       ) : (
         <div className="bg-panel border border-border-primary rounded-lg overflow-hidden">
@@ -67,18 +98,88 @@ const DestinationsPanel: React.FC<DestinationsPanelProps> = ({
                   <th className="px-6 py-4">Connection Host</th>
                   <th className="px-6 py-4">Database Target</th>
                   <th className="px-6 py-4">SSH Tunnel</th>
+                  <th className="px-6 py-4">Verification Status</th>
+                  <th className="px-6 py-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border-primary text-sm">
-                {destinations.map((dest) => (
-                  <tr key={dest.id} className="hover:bg-panel-card/30 transition-colors duration-100">
-                    <td className="px-6 py-4 font-medium text-text-primary">{dest.name}</td>
-                    <td className="px-6 py-4 capitalize text-xs text-text-muted font-mono">{dest.targetDbDialect}</td>
-                    <td className="px-6 py-4 font-mono text-xs text-text-secondary">{dest.targetDbHost}:{dest.targetDbPort}</td>
-                    <td className="px-6 py-4 font-mono text-xs text-text-secondary">{dest.targetDbName}</td>
-                    <td className="px-6 py-4 text-xs text-text-muted">{dest.enableSshBastion ? 'Enabled' : 'Disabled'}</td>
-                  </tr>
-                ))}
+                {destinations.map((dest) => {
+                  const statusInfo = statuses[dest.id]
+                  const isTesting = testingIds[dest.id]
+                  const isFailed = statusInfo?.status === 'failed'
+                  const isSuccess = statusInfo?.status === 'success'
+
+                  return (
+                    <tr
+                      key={dest.id}
+                      className={`transition-colors duration-100 ${
+                        isFailed ? 'bg-rose-950/5 hover:bg-rose-950/10' : 'hover:bg-panel-card/30'
+                      }`}
+                    >
+                      <td className="px-6 py-4 font-medium text-text-primary">
+                        <div className="flex items-center gap-2">
+                          <span>{dest.name}</span>
+                          {isFailed && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-500/10 text-rose-400 border border-rose-500/20 uppercase tracking-wider">
+                              <ShieldAlert className="h-3 w-3" /> Failed
+                            </span>
+                          )}
+                          {isSuccess && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 uppercase tracking-wider">
+                              <CheckCircle2 className="h-3 w-3" /> Connected
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 capitalize text-xs text-text-muted font-mono">{dest.targetDbDialect}</td>
+                      <td className="px-6 py-4 font-mono text-xs text-text-secondary">{dest.targetDbHost}:{dest.targetDbPort}</td>
+                      <td className="px-6 py-4 font-mono text-xs text-text-secondary truncate max-w-[120px]" title={dest.targetDbName}>
+                        {dest.targetDbName}
+                      </td>
+                      <td className="px-6 py-4 text-xs text-text-muted">{dest.enableSshBastion ? 'Enabled' : 'Disabled'}</td>
+                      <td className="px-6 py-4 text-xs text-text-muted truncate max-w-[200px]" title={statusInfo?.message}>
+                        {isTesting ? (
+                          <span className="flex items-center gap-1.5 text-gray-400">
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Testing...
+                          </span>
+                        ) : statusInfo ? (
+                          <span className={isFailed ? 'text-rose-400' : 'text-emerald-400 font-medium'}>
+                            {statusInfo.message}
+                          </span>
+                        ) : (
+                          <span className="text-text-muted italic">Unverified</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <div className="flex items-center justify-end gap-2.5">
+                          {/* Test connection action */}
+                          <button
+                            onClick={() => handleTest(dest.id, dest.name)}
+                            disabled={isTesting}
+                            className="p-2 border border-border-primary hover:border-border-secondary bg-panel hover:bg-text-primary/5 text-text-secondary hover:text-text-primary rounded-lg transition-all cursor-pointer disabled:opacity-50"
+                            title="Test Connection"
+                          >
+                            {isTesting ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Plug className="h-3.5 w-3.5" />
+                            )}
+                          </button>
+
+                          {/* Edit action */}
+                          <button
+                            onClick={() => onEditClick(dest)}
+                            disabled={!canWrite}
+                            className="p-2 border border-border-primary hover:border-border-secondary bg-panel hover:bg-text-primary/5 text-text-secondary hover:text-text-primary rounded-lg transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                            title="Edit Connection"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>

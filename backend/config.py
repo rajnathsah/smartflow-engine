@@ -6,14 +6,14 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env", env_ignore_empty=True, extra="ignore"
     )
-    POSTGRES_SERVER: str = "localhost"
+    POSTGRES_SERVER: str = "host.docker.internal"
     POSTGRES_USER: str = "postgres"
     POSTGRES_PASSWORD: str = "postgrespassword"
     POSTGRES_DB: str = "synq_auth_db"
     POSTGRES_PORT: int = 5432
     N8N_WEBHOOK_URL: str = "https://aditya546shah.app.n8n.cloud/webhook/user-onboarding"
-    CELERY_BROKER_URL: str = "redis://localhost:6379/0"
-    CELERY_RESULT_BACKEND: str = "redis://localhost:6379/0"
+    CELERY_BROKER_URL: str = "redis://host.docker.internal:6379/0"
+    CELERY_RESULT_BACKEND: str = "redis://host.docker.internal:6379/0"
     OPENAI_API_KEY: str = ""
     SERVICE_NAME: str = "Synq.to"
     DB_POOL_SIZE: int = 5
@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 120
     RESET_TOKEN_EXPIRE_MINUTES: int = 15
+    SESSION_TIMEOUT_MINUTES: int = 60
 
     @computed_field
     @property

@@ -1,0 +1,24 @@
+{
+  "Super Admin": ["*"],
+  "Admin": [
+    "read:pipelines",
+    "write:pipelines",
+    "read:sources",
+    "write:sources",
+    "read:destinations",
+    "write:destinations",
+    "read:users"
+  ],
+  "Editor": [
+    "read:pipelines",
+    "write:pipelines",
+    "read:sources",
+    "read:destinations"
+  ],
+  "Viewer": [
+    "read:pipelines",
+    "read:sources",
+    "read:destinations",
+    "read:logs"
+  ]
+}

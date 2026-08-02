@@ -23,7 +23,7 @@ def run_tests():
     
     with SessionLocal() as db:
         db.query(Source).filter(Source.id == "test-src-123").delete()
-        db.query(Connection).filter(Connection.id == "test-conn-123").delete()
+        db.query(Connection).filter(Connection.tenant_id.in_(["tenant-a-123", "tenant-b-456"])).delete()
         db.query(Tenant).filter(Tenant.tenant_id.in_(["tenant-a-123", "tenant-b-456"])).delete()
         
         tenant_a = Tenant(tenant_id="tenant-a-123", tenant_uuid="tenant-a-123", name="Tenant A Workspace", created_at="now")
@@ -101,7 +101,7 @@ def run_tests():
 
     with SessionLocal() as db:
         db.query(Source).filter(Source.id == "test-src-123").delete()
-        db.query(Connection).filter(Connection.id == "test-conn-123").delete()
+        db.query(Connection).filter(Connection.tenant_id.in_(["tenant-a-123", "tenant-b-456"])).delete()
         db.query(Tenant).filter(Tenant.tenant_id.in_(["tenant-a-123", "tenant-b-456"])).delete()
         db.commit()
     

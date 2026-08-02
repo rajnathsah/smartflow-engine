@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
 import type { Pipeline, Source, Destination } from '@/types'
+import { APP_CONFIG } from '@/config/constants'
 
 interface PipelineStoreState {
   activeTenant: string | null
@@ -12,6 +13,9 @@ interface PipelineStoreState {
   sourcesByTenant: Record<string, Source[]>
   destinationsByTenant: Record<string, Destination[]>
   setActiveTenant: (tenant: string | null) => void
+  setPipelines: (pipelines: Pipeline[]) => void
+  setSources: (sources: Source[]) => void
+  setDestinations: (destinations: Destination[]) => void
   addPipeline: (pipeline: Pipeline) => void
   addSource: (source: Source) => void
   addDestination: (destination: Destination) => void
@@ -36,6 +40,39 @@ export const usePipelineStore = create<PipelineStoreState>()(
           sources: tenant ? (state.sourcesByTenant || {})[tenant] || [] : [],
           destinations: tenant ? (state.destinationsByTenant || {})[tenant] || [] : [],
         })),
+      setPipelines: (pipelines) =>
+        set((state) => {
+          const tenantKey = state.activeTenant || 'default'
+          return {
+            pipelines,
+            pipelinesByTenant: {
+              ...(state.pipelinesByTenant || {}),
+              [tenantKey]: pipelines,
+            },
+          }
+        }),
+      setSources: (sources) =>
+        set((state) => {
+          const tenantKey = state.activeTenant || 'default'
+          return {
+            sources,
+            sourcesByTenant: {
+              ...(state.sourcesByTenant || {}),
+              [tenantKey]: sources,
+            },
+          }
+        }),
+      setDestinations: (destinations) =>
+        set((state) => {
+          const tenantKey = state.activeTenant || 'default'
+          return {
+            destinations,
+            destinationsByTenant: {
+              ...(state.destinationsByTenant || {}),
+              [tenantKey]: destinations,
+            },
+          }
+        }),
       addPipeline: (pipeline) =>
         set((state) => {
           const tenantKey = state.activeTenant || 'default'
@@ -80,7 +117,7 @@ export const usePipelineStore = create<PipelineStoreState>()(
           const tenantKey = state.activeTenant || 'default'
           const tenantPipelines = (state.pipelinesByTenant || {})[tenantKey] || []
           const updatedPipelines = tenantPipelines.map((pipeline) =>
-            pipeline.id === id ? { ...pipeline, ...updates } : pipeline
+              pipeline.id === id ? { ...pipeline, ...updates } : pipeline
           )
           return {
             pipelines: updatedPipelines,
@@ -93,7 +130,7 @@ export const usePipelineStore = create<PipelineStoreState>()(
       getPipelineById: (id) => get().pipelines.find((pipeline) => pipeline.id === id),
     }),
     {
-      name: 'synq-pipelines-decoupled',
+      name: APP_CONFIG.STORE_KEY_PIPELINES,
     }
   )
 )

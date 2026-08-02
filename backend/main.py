@@ -6,6 +6,7 @@ from backend.api.routes import pipelines
 from backend.api.routes.documents import router as documents_router
 from backend.api.routes.auth import router as auth_router
 from backend.api.routes.root import router as root_router
+from backend.api.routes.connections import router as connections_router
 from backend.utils.logging import configure_logging, logger
 from backend.utils.limiter import limiter
 
@@ -36,6 +37,7 @@ app.add_middleware(
 
 app.include_router(auth_router)
 app.include_router(pipelines.router, prefix="/api/v1/pipelines", tags=["pipelines"])
+app.include_router(connections_router)
 app.include_router(documents_router)
 app.include_router(root_router)
 

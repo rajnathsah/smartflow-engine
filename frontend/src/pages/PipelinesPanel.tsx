@@ -21,22 +21,22 @@ const PipelinesPanel: React.FC<PipelinesPanelProps> = ({
   canWrite
 }) => {
   return (
-    <div className="space-y-8 max-w-5xl">
-      <div className="flex items-center justify-between">
+    <div className="space-y-8 w-full">
+      <div className="flex items-center justify-between w-full mb-6">
         <div>
           <h2 className="text-lg font-semibold tracking-tight text-text-primary">Data Sync Pipelines</h2>
           <p className="text-sm text-text-muted">Control extraction execution, verify dials, and provision rules.</p>
         </div>
-        <button
-          onClick={onCreateClick}
-          disabled={!canWrite}
-          className="flex items-center gap-2 px-3.5 py-2 bg-text-primary text-background font-medium hover:opacity-90 text-xs rounded-lg transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-          title={!canWrite ? 'You do not have permission to create pipelines' : undefined}
-          aria-label="Create Pipeline"
-        >
-          <Plus className="h-4 w-4 font-bold" />
-          Create Pipeline
-        </button>
+        {canWrite && (
+          <button
+            onClick={onCreateClick}
+            className="flex items-center gap-2 px-3.5 py-2 bg-text-primary text-background font-medium hover:opacity-90 text-xs rounded-lg transition-all cursor-pointer"
+            aria-label="Create Pipeline"
+          >
+            <Plus className="h-4 w-4 font-bold" />
+            Create Pipeline
+          </button>
+        )}
       </div>
 
       <PipelinesTable

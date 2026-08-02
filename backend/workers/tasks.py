@@ -1,7 +1,7 @@
 import asyncio
 import json
 import traceback
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 from sqlalchemy import BOOLEAN, DATETIME, FLOAT, INTEGER, TEXT, Column, MetaData, String, Table, insert, inspect
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
@@ -127,9 +127,9 @@ def infer_schema(record: Dict[str, Any]) -> List[Dict[str, str]]:
     for key, value in record.items():
         type_name = _infer_column_type_name(value)
         schema.append({
-            "sourceKey": key,
-            "targetColumn": key.lower().replace(" ", "_").replace("-", "_"),
-            "targetType": type_name,
+            "source_field": key,
+            "destination_field": key.lower().replace(" ", "_").replace("-", "_"),
+            "data_type": type_name,
         })
     return schema
 
@@ -142,23 +142,56 @@ def _schema_mapping_is_empty(schema_mapping: List[Dict[str, Any]] | Dict[str, An
         return True
     return False
 
-def _normalize_schema_mapping(schema_mapping: List[Dict[str, Any]] | Dict[str, Any]) -> List[Dict[str, Any]]:
-    if isinstance(schema_mapping, list):
-        return schema_mapping
+def _normalize_schema_mapping(schema_mapping: Any) -> List[Dict[str, Any]]:
+    if not schema_mapping:
+        return []
+        
+    # Handle stringified JSON
+    if isinstance(schema_mapping, str):
+        try:
+            schema_mapping = json.loads(schema_mapping)
+        except Exception as e:
+            logger.error(f"[Schema-Norm] Failed to parse stringified schema mapping: {str(e)}")
+            raise ValueError(f"Schema mapping is invalid or empty: {str(e)}")
+
+    # Check if SchemaMappingConfig object from Pydantic (which has a 'mappings' attribute)
+    if hasattr(schema_mapping, "mappings"):
+        schema_mapping = schema_mapping.mappings
+    elif isinstance(schema_mapping, dict) and "mappings" in schema_mapping:
+        schema_mapping = schema_mapping["mappings"]
+
     normalized = []
-    for source_key, val in schema_mapping.items():
-        if isinstance(val, str):
-            normalized.append({
-                "sourceKey": source_key,
-                "targetColumn": val,
-                "targetType": "string",
-            })
-        elif isinstance(val, dict):
-            normalized.append({
-                "sourceKey": source_key,
-                "targetColumn": val.get("targetColumn") or val.get("target_column") or source_key,
-                "targetType": val.get("targetType") or val.get("target_type") or "string",
-            })
+    
+    if isinstance(schema_mapping, list):
+        for item in schema_mapping:
+            if not isinstance(item, dict):
+                continue
+            sf = item.get("source_field") or item.get("sourceKey") or item.get("source_key")
+            df = item.get("destination_field") or item.get("target_field") or item.get("targetColumn") or item.get("target_key")
+            dt = item.get("data_type") or item.get("targetType") or item.get("target_type") or "string"
+            if sf and df:
+                normalized.append({
+                    "source_field": sf,
+                    "destination_field": df,
+                    "data_type": dt
+                })
+    elif isinstance(schema_mapping, dict):
+        for source_key, val in schema_mapping.items():
+            if isinstance(val, str):
+                normalized.append({
+                    "source_field": source_key,
+                    "destination_field": val,
+                    "data_type": "string",
+                })
+            elif isinstance(val, dict):
+                df = val.get("destination_field") or val.get("target_field") or val.get("targetColumn") or val.get("target_key") or source_key
+                dt = val.get("data_type") or val.get("targetType") or val.get("target_type") or "string"
+                normalized.append({
+                    "source_field": source_key,
+                    "destination_field": df,
+                    "data_type": dt,
+                })
+                
     return normalized
 
 class DynamicBase(DeclarativeBase):
@@ -167,32 +200,80 @@ class DynamicBase(DeclarativeBase):
 def _build_dynamic_table(
     table_name: str,
     schema_mapping: List[Dict[str, Any]],
-) -> Tuple[Any, Table, Dict[str, str]]:
+) -> Tuple[MetaData, Table, Dict[str, str]]:
     metadata = MetaData()
     columns = [
         Column("id", INTEGER(), primary_key=True, autoincrement=True),
     ]
     mapping_dict = {}
     for item in schema_mapping:
-        source_key = item["sourceKey"]
-        target_col = item["targetColumn"]
-        target_type = str(item.get("targetType") or item.get("target_type") or "string").lower()
+        source_key = item.get("source_field")
+        target_col = item.get("destination_field")
+        target_type = str(item.get("data_type") or "string").lower()
+        if not source_key or not target_col:
+            continue
         builder = INFERRED_TYPE_BUILDERS.get(target_type)
         if not builder:
             builder = lambda: String(length=255)
         columns.append(Column(target_col, builder(), nullable=True))
         mapping_dict[source_key] = target_col
     dynamic_table = Table(table_name, metadata, *columns)
-    return DynamicBase, dynamic_table, mapping_dict
+    return metadata, dynamic_table, mapping_dict
 
-async def _ensure_target_table(engine: AsyncEngine, Base: Any, table_name: str) -> None:
+async def _ensure_target_table(
+    engine: AsyncEngine,
+    metadata: MetaData,
+    table_name: str,
+    schema_mapping: List[Dict[str, Any]],
+) -> None:
+    import re
+    from sqlalchemy import text
+    
+    def sanitize_identifier(name: str) -> str:
+        return re.sub(r'[^a-zA-Z0-9_]', '', name)
+        
+    safe_table = sanitize_identifier(table_name)
+    
     async with engine.begin() as conn:
         def check_table(connection):
             inspector = inspect(connection)
             return inspector.has_table(table_name)
+            
         table_exists = await conn.run_sync(check_table)
         if not table_exists:
-            await conn.run_sync(Base.metadata.create_all)
+            logger.warning(f"[Auto-Heal] Target table '{safe_table}' does not exist. Dynamically creating it.")
+            await conn.run_sync(metadata.create_all)
+            logger.warning(f"[Auto-Heal] Target table '{safe_table}' created successfully.")
+        else:
+            # Table exists, inspect existing columns
+            def get_cols(connection):
+                inspector = inspect(connection)
+                return [col["name"] for col in inspector.get_columns(table_name)]
+                
+            existing_columns = await conn.run_sync(get_cols)
+            existing_columns_lower = {col.lower() for col in existing_columns}
+            
+            # Check schema mapping for new columns to dynamically ALTER table
+            for item in schema_mapping:
+                target_col = item.get("destination_field")
+                target_type = str(item.get("data_type") or "string").lower()
+                if not target_col:
+                    continue
+                
+                safe_column = sanitize_identifier(target_col)
+                if safe_column.lower() not in existing_columns_lower:
+                    builder = INFERRED_TYPE_BUILDERS.get(target_type)
+                    if not builder:
+                        builder = lambda: String(length=255)
+                    
+                    # Compile type for current dialect
+                    col_type = builder()
+                    compiled_type = col_type.compile(dialect=conn.dialect)
+                    
+                    alter_query = f'ALTER TABLE "{safe_table}" ADD COLUMN "{safe_column}" {compiled_type}'
+                    logger.warning(f"[Auto-Heal] Table '{safe_table}' is missing column '{safe_column}'. Altering table...")
+                    await conn.execute(text(alter_query))
+                    logger.warning(f"[Auto-Heal] Added missing column '{safe_column}' to table '{safe_table}'")
 
 async def _write_chunk(
     session_factory: Any,
@@ -219,20 +300,24 @@ async def load_records_chunked(
     schema_mapping: List[Dict[str, Any]] | Dict[str, Any] | None,
     records_generator: Iterable[List[Dict[str, Any]]],
 ) -> int:
+    logger.debug(f"Received schema mapping: {schema_mapping}")
+    
     records_iterator = iter(records_generator)
     first_chunk = next(records_iterator, None)
     if not first_chunk or len(first_chunk) == 0:
         if _schema_mapping_is_empty(schema_mapping):
-            raise ValueError("Cannot initiate ETL sync with an empty schema mapping")
+            raise ValueError("Schema mapping is invalid or empty")
         raise ValueError("API returned no data.")
+        
     def prepend_chunk(chunk, gen):
         yield chunk
         yield from gen
     records_generator = prepend_chunk(first_chunk, records_iterator)
+    
     if _schema_mapping_is_empty(schema_mapping):
         first_record = first_chunk[0] if isinstance(first_chunk[0], dict) else None
         if not first_record:
-            raise ValueError("Cannot initiate ETL sync with an empty schema mapping")
+            raise ValueError("Schema mapping is invalid or empty")
         inferred_mapping = infer_schema(first_record)
         logger.warning(
             "Schema mapping was empty, injected fallback schema based on first record.",
@@ -240,10 +325,46 @@ async def load_records_chunked(
             table_name=table_name,
         )
         schema_mapping = inferred_mapping
-    else:
-        schema_mapping = _normalize_schema_mapping(schema_mapping)
-    Base, target_table, mapping_dict = _build_dynamic_table(table_name, schema_mapping)
-    await _ensure_target_table(engine, Base, table_name)
+
+    schema_mapping = _normalize_schema_mapping(schema_mapping)
+
+    if not schema_mapping or _schema_mapping_is_empty(schema_mapping):
+        raise ValueError("Schema mapping is invalid or empty")
+
+    logger.debug(f"Normalized schema mapping: {schema_mapping}")
+
+    # Dynamic Schema Self-Healing: Inspect incoming data to detect new fields
+    existing_source_keys = {
+        item.get("source_field")
+        for item in schema_mapping
+        if item.get("source_field")
+    }
+    new_fields_detected = False
+    new_keys_with_types = {}
+    for record in first_chunk:
+        if isinstance(record, dict):
+            for k, v in record.items():
+                if k not in existing_source_keys and k not in new_keys_with_types:
+                    new_keys_with_types[k] = v
+                    new_fields_detected = True
+
+    if new_fields_detected:
+        for k, v in new_keys_with_types.items():
+            inferred_type = _infer_column_type_name(v)
+            target_col = k.lower().replace(" ", "_").replace("-", "_")
+            new_item = {
+                "source_field": k,
+                "destination_field": target_col,
+                "data_type": inferred_type
+            }
+            schema_mapping.append(new_item)
+            logger.warning(
+                f"[Auto-Heal] Detected new field '{k}' in incoming data. "
+                f"Dynamically mapped to target column '{target_col}' with type '{inferred_type}'."
+            )
+
+    metadata, target_table, mapping_dict = _build_dynamic_table(table_name, schema_mapping)
+    await _ensure_target_table(engine, metadata, table_name, schema_mapping)
     session_factory = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
     buffer = []
     chunk_index = 0
@@ -352,54 +473,65 @@ def load_custom_auth_token(connection_id: str, auth_config: dict) -> str:
     return str(module.get_auth_token(auth_config))
 
 async def run_pipeline_orchestration(pipeline_config: Dict[str, Any]) -> int:
-    source_config, target_config, schema_mapping = _normalize_pipeline_config(pipeline_config)
-    logger.info("Payload received", config=target_config)
-    _validate_target_config(target_config)
-    table_name = target_config["tableName"]
-    endpoint_url = str(source_config.get("endpointUrl", "")).strip()
-    if not endpoint_url:
-        raise ValueError("Source endpointUrl is required to start the sync pipeline.")
-    target_db = str(target_config.get("targetDb", "postgresql")).lower()
-    port_val = target_config.get("port")
-    remote_db_port = int(port_val) if port_val else None
-    connection_id = pipeline_config.get("id")
-    if connection_id:
-        auth_config = source_config.get("auth", {})
-        token = load_custom_auth_token(connection_id, auth_config)
-        if token:
-            auth_config["authToken"] = token
-    records_generator = extract_records_generator(
-        endpoint_url=endpoint_url,
-        auth_config=source_config.get("auth", {}),
-        pagination_config=source_config.get("pagination", {}),
-        custom_headers=source_config.get("customHeaders", {}),
-        data_path=source_config.get("dataPath"),
-    )
-    logger.info(
-        "Starting ETL pipeline orchestration",
-        table_name=table_name,
-        source_endpoint=endpoint_url,
-        target_database=target_config.get("database"),
-        target_host=target_config.get("host"),
-        target_port=remote_db_port,
-        ssh_enabled=target_config.get("sshEnabled", False),
-    )
     try:
-        return await _run_with_engine(
-            target_config=target_config,
+        logger.info("[ETL] Step 1: Initializing configurations and validating database parameters...")
+        source_config, target_config, schema_mapping = _normalize_pipeline_config(pipeline_config)
+        logger.info("Payload received", config=target_config)
+        _validate_target_config(target_config)
+        table_name = target_config["tableName"]
+        endpoint_url = str(source_config.get("endpointUrl", "")).strip()
+        if not endpoint_url:
+            raise ValueError("Source endpointUrl is required to start the sync pipeline.")
+        target_db = str(target_config.get("targetDb", "postgresql")).lower()
+        port_val = target_config.get("port")
+        remote_db_port = int(port_val) if port_val else None
+        connection_id = pipeline_config.get("id")
+        if connection_id:
+            auth_config = source_config.get("auth", {})
+            try:
+                token = load_custom_auth_token(connection_id, auth_config)
+                if token:
+                    auth_config["authToken"] = token
+            except Exception as e:
+                raise ValueError(f"Auth token initialization failed: {str(e)}") from e
+
+        logger.info("[ETL] Step 2: Initiating source extraction generator stream...")
+        try:
+            records_generator = extract_records_generator(
+                endpoint_url=endpoint_url,
+                auth_config=source_config.get("auth", {}),
+                pagination_config=source_config.get("pagination", {}),
+                custom_headers=source_config.get("customHeaders", {}),
+                data_path=source_config.get("dataPath"),
+            )
+        except Exception as e:
+            raise ValueError(f"Source extraction failed: {str(e)}") from e
+
+        logger.info(
+            "Starting ETL pipeline orchestration",
             table_name=table_name,
-            schema_mapping=schema_mapping,
-            records_generator=records_generator,
+            source_endpoint=endpoint_url,
+            target_database=target_config.get("database"),
+            target_host=target_config.get("host"),
+            target_port=remote_db_port,
+            ssh_enabled=target_config.get("sshEnabled", False),
         )
+
+        logger.info("[ETL] Step 3 & 4: Applying schema transformation and loading to destination...")
+        try:
+            return await _run_with_engine(
+                target_config=target_config,
+                table_name=table_name,
+                schema_mapping=schema_mapping,
+                records_generator=records_generator,
+            )
+        except Exception as e:
+            raise ValueError(f"Destination write failed: {str(e)}") from e
     except Exception as exc:
         logger.error(
             "ETL pipeline orchestration failed",
             error=str(exc),
             traceback=traceback.format_exc(),
-            table_name=table_name,
-            target_database=target_config.get("database"),
-            target_host=target_config.get("host"),
-            target_port=remote_db_port,
         )
         raise
 
@@ -411,28 +543,94 @@ def run_async_bridge(coro: Any) -> Any:
     finally:
         loop.close()
 
+def _write_run_log(
+    run_id: str,
+    tenant_id: str,
+    level: str,
+    message: str,
+    pipeline_id: Optional[str] = None,
+    extra: Optional[dict] = None,
+) -> None:
+    """Fire-and-forget helper: persist a structured log row for a pipeline run."""
+    try:
+        from backend.database.database import SessionLocal
+        from backend.services.log_service import LogService
+        with SessionLocal() as db:
+            svc = LogService(db, tenant_id)
+            svc.append_log(
+                run_id=run_id,
+                level=level,
+                message=message,
+                pipeline_id=pipeline_id,
+                extra=extra,
+            )
+    except Exception as log_exc:
+        logger.warning("Failed to persist run log entry", run_id=run_id, error=str(log_exc))
+
+
 @celery_app.task(bind=True, max_retries=3)
 def sync_pipeline_task(self, pipeline_config: Dict[str, Any]) -> Dict[str, Any]:
-    logger.info("Initiating ETL sync task", task_id=self.request.id)
+    task_id: str = self.request.id
+    pipeline_id: Optional[str] = pipeline_config.get("id")
+    tenant_id: str = pipeline_config.get("tenant_id", "")
+
+    logger.info("Initiating ETL sync task", task_id=task_id)
+    _write_run_log(task_id, tenant_id, "INFO",
+                   f"[INIT] Pipeline sync task started — task_id={task_id}",
+                   pipeline_id=pipeline_id)
+
     try:
+        source_url  = pipeline_config.get("sourceUrl", "<unknown>")
+        target_db   = pipeline_config.get("targetDbDialect", "unknown")
+        target_host = pipeline_config.get("targetDbHost", "unknown")
+        target_name = pipeline_config.get("targetDbName", "unknown")
+        schedule    = pipeline_config.get("schedule", "manual")
+
+        _write_run_log(task_id, tenant_id, "INFO",
+                       f"[CONFIG] Source endpoint : {source_url}",
+                       pipeline_id=pipeline_id)
+        _write_run_log(task_id, tenant_id, "INFO",
+                       f"[CONFIG] Target database : {target_db}://{target_host}/{target_name}",
+                       pipeline_id=pipeline_id)
+        _write_run_log(task_id, tenant_id, "INFO",
+                       f"[CONFIG] Schedule        : {schedule}",
+                       pipeline_id=pipeline_id)
+        _write_run_log(task_id, tenant_id, "INFO",
+                       "[ETL] Initializing source extractor and HTTP connection pool...",
+                       pipeline_id=pipeline_id)
+        _write_run_log(task_id, tenant_id, "INFO",
+                       "[ETL] Fetching data from REST source endpoint...",
+                       pipeline_id=pipeline_id)
+
         total_loaded = run_async_bridge(run_pipeline_orchestration(pipeline_config))
-        logger.info(
-            "ETL sync task completed successfully",
-            task_id=self.request.id,
-            records_synced=total_loaded,
-        )
+
+        _write_run_log(task_id, tenant_id, "INFO",
+                       f"[ETL] Data extraction complete. Writing {total_loaded} records to target...",
+                       pipeline_id=pipeline_id)
+        _write_run_log(task_id, tenant_id, "INFO",
+                       f"[SUCCESS] ETL sync completed successfully. records_synced={total_loaded}",
+                       pipeline_id=pipeline_id,
+                       extra={"records_synced": total_loaded})
+
+        logger.info("ETL sync task completed successfully",
+                    task_id=task_id, records_synced=total_loaded)
         return {
             "status": "success",
-            "task_id": self.request.id,
+            "task_id": task_id,
             "records_synced": total_loaded,
         }
+
     except Exception as exc:
-        logger.error(
-            "ETL sync task failed",
-            task_id=self.request.id,
-            error=str(exc),
-            traceback=traceback.format_exc(),
-        )
+        err_msg = str(exc)
+        tb = traceback.format_exc()
+        _write_run_log(task_id, tenant_id, "ERROR",
+                       f"[ERROR] Pipeline execution failed: {err_msg}",
+                       pipeline_id=pipeline_id)
+        _write_run_log(task_id, tenant_id, "ERROR",
+                       f"[TRACEBACK]\n{tb}",
+                       pipeline_id=pipeline_id)
+        logger.error("ETL sync task failed",
+                     task_id=task_id, error=err_msg, traceback=tb)
         raise self.retry(exc=exc, countdown=15)
 
 def generate_openai_embeddings(text: str) -> List[float]:

@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { Plus, Check, ShieldAlert, Shield, ShieldCheck } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { SYSTEM_PERMISSIONS } from '@/lib/permissions'
+import { APP_CONFIG } from '@/config/constants'
 
 const roleSchema = z.object({
   roleName: z.string().min(2, 'Role name must be at least 2 characters'),
@@ -37,7 +38,7 @@ export const RoleBuilder: React.FC = () => {
   const [successPayload, setSuccessPayload] = useState<string | null>(null)
   const [customRoles, setCustomRoles] = useState<RoleFormData[]>([])
 
-  const storageKey = activeTenant ? `synq-custom-roles-${activeTenant}` : 'synq-custom-roles'
+  const storageKey = activeTenant ? `${APP_CONFIG.STORE_KEY_ROLES}-${activeTenant}` : APP_CONFIG.STORE_KEY_ROLES
 
   const loadCustomRoles = () => {
     try {
@@ -114,10 +115,10 @@ export const RoleBuilder: React.FC = () => {
   }
 
   return (
-    <div className="space-y-12 max-w-5xl">
+    <div className="space-y-12 w-full">
       <div>
-        <h2 className="text-lg font-semibold tracking-tight text-text-primary">Role Management & Authorization Directory</h2>
-        <p className="text-sm text-text-muted">Configure custom role matrices and inspect system authorization boundaries.</p>
+        <h2 className="text-lg font-semibold tracking-tight text-gray-900 dark:text-white">Role Management & Authorization Directory</h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400">Configure custom role matrices and inspect system authorization boundaries.</p>
       </div>
 
       {successPayload && (
@@ -126,27 +127,27 @@ export const RoleBuilder: React.FC = () => {
             <Check className="h-4 w-4 text-emerald-500" />
             <span className="font-semibold uppercase tracking-wide">Role Provisioned Successfully!</span>
           </div>
-          <pre className="p-3 bg-panel-card border border-border-primary rounded-lg text-[10px] font-mono text-text-secondary overflow-x-auto leading-relaxed">
+          <pre className="p-3 bg-gray-50 dark:bg-[#1A1A1A] border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white rounded-lg text-[10px] font-mono overflow-x-auto leading-relaxed">
             {successPayload}
           </pre>
         </div>
       )}
 
       <form onSubmit={handleSubmit(onRoleSubmit)} className="grid grid-cols-1 lg:grid-cols-5 gap-8 items-start">
-        <div className="lg:col-span-2 bg-panel border border-border-primary rounded-xl p-6 space-y-6">
+        <div className="lg:col-span-2 bg-white dark:bg-[#111111] border border-gray-200 dark:border-white/10 rounded-xl p-6 space-y-6">
           <div className="space-y-1">
-            <h3 className="text-sm font-semibold text-text-primary">Role Metadata</h3>
-            <p className="text-xs text-text-muted">Define the identifier name and workspace description.</p>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Role Metadata</h3>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Define the identifier name and workspace description.</p>
           </div>
 
           <div className="space-y-4">
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-text-secondary uppercase tracking-wide">Role Identifier Name</label>
+              <label className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wide">Role Identifier Name</label>
               <input
                 type="text"
                 placeholder="e.g. Data_Auditor"
                 {...register('roleName')}
-                className="w-full bg-panel-card border border-border-primary text-text-primary placeholder-text-muted text-sm rounded-lg px-3.5 py-2.5 focus:outline-none focus:border-border-secondary transition-all"
+                className="w-full bg-gray-50 dark:bg-[#1A1A1A] border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white placeholder-gray-400 text-sm rounded-lg px-3.5 py-2.5 focus:outline-none focus:border-gray-500 transition-all"
               />
               {errors.roleName && (
                 <p className="text-[11px] text-rose-500 flex items-center gap-1 mt-1">
@@ -156,12 +157,12 @@ export const RoleBuilder: React.FC = () => {
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-text-secondary uppercase tracking-wide">Access Scope Description</label>
+              <label className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wide">Access Scope Description</label>
               <textarea
                 rows={4}
                 placeholder="Summarize the sync extraction authorization parameters delegated to this custom role..."
                 {...register('description')}
-                className="w-full bg-panel-card border border-border-primary text-text-primary placeholder-text-muted text-sm rounded-lg px-3.5 py-2.5 focus:outline-none focus:border-border-secondary transition-all leading-relaxed"
+                className="w-full bg-gray-50 dark:bg-[#1A1A1A] border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white placeholder-gray-400 text-sm rounded-lg px-3.5 py-2.5 focus:outline-none focus:border-gray-500 transition-all leading-relaxed"
               />
               {errors.description && (
                 <p className="text-[11px] text-rose-500 flex items-center gap-1 mt-1">
@@ -173,18 +174,18 @@ export const RoleBuilder: React.FC = () => {
 
           <button
             type="submit"
-            className="w-full py-2.5 bg-text-primary text-background font-semibold hover:opacity-90 text-xs uppercase tracking-wider rounded-lg transition-all cursor-pointer flex items-center justify-center gap-2"
+            className="w-full py-2.5 bg-gray-900 dark:bg-white text-white dark:text-black font-semibold hover:opacity-90 text-xs uppercase tracking-wider rounded-lg transition-all cursor-pointer flex items-center justify-center gap-2"
           >
             <Plus className="h-4 w-4" />
             Provision Role Scope
           </button>
         </div>
 
-        <div className="lg:col-span-3 bg-panel border border-border-primary rounded-xl p-6 space-y-6">
+        <div className="lg:col-span-3 bg-white dark:bg-[#111111] border border-gray-200 dark:border-white/10 rounded-xl p-6 space-y-6">
           <div className="space-y-1 flex justify-between items-center">
             <div>
-              <h3 className="text-sm font-semibold text-text-primary">Permission Scope Matrix</h3>
-              <p className="text-xs text-text-muted">Map resource actions to custom roles.</p>
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Permission Scope Matrix</h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Map resource actions to custom roles.</p>
             </div>
             {errors.permissions && (
               <span className="text-[11px] text-rose-500 font-semibold uppercase tracking-wider flex items-center gap-1.5 bg-rose-500/10 border border-rose-500/20 px-2.5 py-1 rounded-md animate-pulse">
@@ -197,11 +198,11 @@ export const RoleBuilder: React.FC = () => {
           <div className="space-y-6 max-h-[420px] overflow-y-auto pr-1">
             {SYSTEM_PERMISSIONS.map((group) => (
               <div key={group.section} className="space-y-3">
-                <span className="text-xs font-semibold text-text-muted uppercase tracking-wider block px-1">
+                <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider block px-1">
                   {group.section}
                 </span>
                 
-                <div className="border border-border-primary rounded-lg overflow-hidden divide-y divide-border-primary bg-panel-card/30">
+                <div className="border border-gray-200 dark:border-white/10 rounded-lg overflow-hidden divide-y divide-gray-200 dark:divide-white/10 bg-gray-50/50 dark:bg-[#1A1A1A]/30">
                   {group.items.map((perm) => {
                     const isChecked = watchPermissions.includes(perm.id)
 
@@ -210,23 +211,23 @@ export const RoleBuilder: React.FC = () => {
                         key={perm.id}
                         type="button"
                         onClick={() => handleCheckboxToggle(perm.id)}
-                        className="w-full text-left p-4 hover:bg-panel-card/85 transition-colors flex items-start gap-4 cursor-pointer"
+                        className="w-full text-left p-4 hover:bg-gray-100/50 dark:hover:bg-white/5 transition-colors flex items-start gap-4 cursor-pointer"
                       >
                         <div
                           className={`h-5 w-5 rounded-md border shrink-0 flex items-center justify-center transition-all ${
                             isChecked
-                              ? 'bg-text-primary border-text-primary'
-                              : 'bg-panel-card border-border-primary'
+                              ? 'bg-gray-900 dark:bg-white border-gray-900 dark:border-white'
+                              : 'bg-white dark:bg-[#1A1A1A] border-gray-300 dark:border-gray-700'
                           }`}
                         >
-                          {isChecked && <Check className="h-3.5 w-3.5 text-background font-bold" />}
+                          {isChecked && <Check className="h-3.5 w-3.5 text-white dark:text-black font-bold" />}
                         </div>
 
                         <div className="space-y-0.5">
-                          <span className="text-xs font-semibold text-text-secondary block">
+                          <span className="text-xs font-semibold text-gray-800 dark:text-gray-200 block">
                             {perm.label}
                           </span>
-                          <p className="text-[11px] text-text-muted leading-relaxed">
+                          <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">
                             {perm.description}
                           </p>
                         </div>
@@ -240,42 +241,42 @@ export const RoleBuilder: React.FC = () => {
         </div>
       </form>
 
-      <div className="bg-panel border border-border-primary rounded-xl p-6 space-y-6">
+      <div className="bg-white dark:bg-[#111111] border border-gray-200 dark:border-white/10 rounded-xl p-6 space-y-6">
         <div>
-          <h3 className="text-sm font-semibold text-text-primary">Workspace Role Directory</h3>
-          <p className="text-xs text-text-muted">Inspect authorization mappings for all standard system roles and customized profiles.</p>
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Workspace Role Directory</h3>
+          <p className="text-xs text-gray-500 dark:text-gray-400">Inspect authorization mappings for all standard system roles and customized profiles.</p>
         </div>
 
-        <div className="overflow-x-auto border border-border-primary rounded-lg">
+        <div className="overflow-x-auto border border-gray-200 dark:border-white/10 rounded-lg">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
-              <tr className="bg-panel-card border-b border-border-primary text-text-muted font-medium uppercase tracking-wider text-[10px]">
+              <tr className="bg-gray-50 dark:bg-[#1A1A1A] border-b border-gray-200 dark:border-white/10 text-gray-500 dark:text-gray-400 font-medium uppercase tracking-wider text-[10px]">
                 <th className="p-4">Role / Profile</th>
                 <th className="p-4">Description</th>
                 <th className="p-4">Authorization Scopes</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-border-primary bg-panel-card/10">
+            <tbody className="divide-y divide-gray-200 dark:divide-white/10 bg-white dark:bg-[#111111]">
               {allRoles.map((roleItem) => {
                 const isSystem = DEFAULT_ROLES.some((dr) => dr.roleName === roleItem.roleName)
                 return (
-                  <tr key={roleItem.roleName} className="hover:bg-panel-card/35 transition-colors">
+                  <tr key={roleItem.roleName} className="hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
                     <td className="p-4 align-top">
                       <div className="flex items-center gap-2">
                         {isSystem ? (
-                          <ShieldCheck className="h-4 w-4 text-text-secondary" />
+                          <ShieldCheck className="h-4 w-4 text-gray-800 dark:text-gray-200" />
                         ) : (
-                          <Shield className="h-4 w-4 text-text-muted" />
+                          <Shield className="h-4 w-4 text-gray-400 dark:text-gray-500" />
                         )}
-                        <span className="font-semibold text-text-primary font-mono">{roleItem.roleName}</span>
+                        <span className="font-semibold text-gray-900 dark:text-white font-mono">{roleItem.roleName}</span>
                         {isSystem && (
-                          <span className="px-1.5 py-0.5 bg-border-primary text-text-muted rounded text-[9px] uppercase tracking-wide font-medium">
+                          <span className="px-1.5 py-0.5 bg-gray-100 dark:bg-white/10 text-gray-600 dark:text-gray-300 rounded text-[9px] uppercase tracking-wide font-medium">
                             System
                           </span>
                         )}
                       </div>
                     </td>
-                    <td className="p-4 text-text-secondary max-w-sm align-top leading-relaxed">
+                    <td className="p-4 text-gray-700 dark:text-gray-300 max-w-sm align-top leading-relaxed">
                       {roleItem.description}
                     </td>
                     <td className="p-4 align-top">
@@ -283,7 +284,7 @@ export const RoleBuilder: React.FC = () => {
                         {roleItem.permissions.map((permId) => (
                           <span
                             key={permId}
-                            className="px-2 py-0.5 bg-panel-card border border-border-primary text-text-secondary rounded-full text-[10px] font-medium"
+                            className="px-2 py-0.5 bg-gray-50 dark:bg-[#1A1A1A] border border-gray-200 dark:border-white/10 text-gray-700 dark:text-gray-300 rounded-full text-[10px] font-medium"
                           >
                             {getPermissionLabel(permId)}
                           </span>

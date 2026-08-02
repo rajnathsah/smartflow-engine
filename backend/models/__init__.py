@@ -5,5 +5,5 @@ class Base(DeclarativeBase):
 
 from .user import User
 from .tenant import Tenant
-from .pipeline import Source, Destination, Connection, Log, Pipeline
+from .pipeline import Source, Destination, Connection, Log, Pipeline, PipelineRunLog
 from .document import DocumentChunk
