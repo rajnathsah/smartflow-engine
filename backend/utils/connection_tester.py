@@ -2,6 +2,8 @@ import asyncio
 import json
 import httpx
 from sqlalchemy import text
+from sqlalchemy.schema import CreateSchema
+from sqlalchemy.sql import quoted_name
 from typing import Dict, Any
 
 async def test_db_connection(config: Dict[str, Any]) -> Dict[str, Any]:
@@ -97,7 +99,9 @@ async def test_db_connection(config: Dict[str, Any]) -> Dict[str, Any]:
                         async with temp_engine.connect() as conn:
                             import re
                             safe_db_name = re.sub(r'[^a-zA-Z0-9_]', '', db_name)
-                            await conn.execute(text(f'CREATE DATABASE "{safe_db_name}"'))
+                            if not safe_db_name:
+                                raise ValueError("Invalid database name")
+                            await conn.execute(CreateSchema(quoted_name(safe_db_name, True)))
                         await temp_engine.dispose()
                         
                         # Reconnect to newly created database
@@ -119,7 +123,9 @@ async def test_db_connection(config: Dict[str, Any]) -> Dict[str, Any]:
                         async with temp_engine.connect() as conn:
                             import re
                             safe_db_name = re.sub(r'[^a-zA-Z0-9_]', '', db_name)
-                            await conn.execute(text(f"CREATE DATABASE IF NOT EXISTS `{safe_db_name}`"))
+                            if not safe_db_name:
+                                raise ValueError("Invalid database name")
+                            await conn.execute(CreateSchema(quoted_name(safe_db_name, True), if_not_exists=True))
                         await temp_engine.dispose()
                         
                         engine = handler.create_engine(connection_uri)
