@@ -65,6 +65,8 @@ class AuthService:
         }, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
     def login_user(self, username: str, password: str, tenant: str) -> Dict[str, Any]:
+        username = username.strip() if username else ""
+        tenant = tenant.strip() if tenant else ""
         if tenant:
             tenant_row = self.db.query(Tenant).filter(func.lower(Tenant.name) == func.lower(tenant)).first()
             if not tenant_row:
@@ -118,7 +120,7 @@ class AuthService:
             tenant_id,
             user_row.role,
             "access",
-            settings.ACCESS_TOKEN_EXPIRE_MINUTES
+            settings.SESSION_TIMEOUT_MINUTES
         )
         return {
             "token_key": "access_token",
@@ -131,6 +133,9 @@ class AuthService:
         }
 
     def register_user(self, tenant: str, username: str, email: str, password: str) -> Dict[str, Any]:
+        tenant = tenant.strip() if tenant else ""
+        username = username.strip() if username else ""
+        email = email.strip() if email else ""
         existing_tenant = self.db.query(Tenant).filter(func.lower(Tenant.name) == func.lower(tenant)).first()
         if existing_tenant:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Workspace name is already registered.")
@@ -168,7 +173,7 @@ class AuthService:
             tenant_id,
             "Tenant_Admin",
             "access",
-            settings.ACCESS_TOKEN_EXPIRE_MINUTES
+            settings.SESSION_TIMEOUT_MINUTES
         )
         return {
             "token_key": "access_token",
@@ -267,7 +272,7 @@ class AuthService:
             tenant_id,
             claims["role"],
             "access",
-            settings.ACCESS_TOKEN_EXPIRE_MINUTES
+            settings.SESSION_TIMEOUT_MINUTES
         )
         return {
             "token_key": "access_token",
@@ -326,7 +331,7 @@ class AuthService:
             tenant_id,
             role,
             "access",
-            settings.ACCESS_TOKEN_EXPIRE_MINUTES
+            settings.SESSION_TIMEOUT_MINUTES
         )
         return {
             "token_key": "access_token",
@@ -350,3 +355,30 @@ class AuthService:
             }
             for row in rows
         ]
+
+    def refresh_session_token(self, claims: dict) -> Dict[str, Any]:
+        username = claims.get("sub")
+        email = claims.get("email")
+        tenant_id = claims.get("tenant_id") or claims.get("tenant_uuid")
+        role = claims.get("role")
+
+        tenant_row = self.db.query(Tenant).filter(Tenant.tenant_id == tenant_id).first()
+        tenant_name = tenant_row.name if tenant_row else ""
+
+        new_token = self.create_token(
+            username,
+            email,
+            tenant_id,
+            role,
+            "access",
+            settings.SESSION_TIMEOUT_MINUTES
+        )
+        return {
+            "token_key": "access_token",
+            "token": new_token,
+            "tenant_id": tenant_id,
+            "tenant_name": tenant_name,
+            "role": role,
+            "email": email,
+            "is_first_login": False
+        }

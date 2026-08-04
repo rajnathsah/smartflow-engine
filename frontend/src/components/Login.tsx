@@ -1,17 +1,21 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useNavigate } from 'react-router-dom'
 import apiClient from '@/api/client'
-import { Lock, Loader2, ShieldAlert, ArrowLeft, Database, Globe, Network, ArrowRight, ShieldCheck, Mail, User, Sun, Moon } from 'lucide-react'
+import { Lock, Loader2, ShieldAlert } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
-import { motion, useMotionValue, useMotionTemplate } from 'framer-motion'
+import { motion } from 'framer-motion'
+import { APP_CONFIG } from '@/config/constants'
+import { notify } from '@/lib/notify'
+
+// ─── Validation Schemas ──────────────────────────────────────────────────────
 
 const loginSchema = z.object({
   email: z.string().email('Please enter a valid email address'),
   password: z.string().min(6, 'Password must be at least 6 characters'),
-  tenant: z.string().min(2, 'Tenant identifier must be at least 2 characters'),
+  tenant: z.string().optional(),
 })
 
 const registerSchema = z.object({
@@ -33,236 +37,12 @@ type LoginFormData = z.infer<typeof loginSchema>
 type RegisterFormData = z.infer<typeof registerSchema>
 type ResetFormData = z.infer<typeof resetSchema>
 
-export const DataTunnel: React.FC = () => {
-  const { theme } = useAuthStore()
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-
-  useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-
-    let animationFrameId: number
-    let width = canvas.width = window.innerWidth
-    let height = canvas.height = window.innerHeight
-
-    const handleResize = () => {
-      if (!canvas) return
-      width = canvas.width = window.innerWidth
-      height = canvas.height = window.innerHeight
-      init()
-    }
-    window.addEventListener('resize', handleResize)
-
-    class Curve {
-      startX: number
-      startY: number
-      cp1x: number
-      cp1y: number
-      cp2x: number
-      cp2y: number
-      endX: number
-      endY: number
-      color: string
-      width: number
-
-      constructor(index: number, totalCount: number) {
-        const startYBase = (index / totalCount) * height
-        this.startX = -50
-        this.startY = startYBase + (Math.random() - 0.5) * 80
-        this.endX = width + 50
-        this.endY = startYBase + (Math.random() - 0.5) * 80
-        this.cp1x = width * 0.33 + (Math.random() - 0.5) * 80
-        this.cp1y = this.startY + (Math.random() - 0.5) * 250
-        this.cp2x = width * 0.66 + (Math.random() - 0.5) * 80
-        this.cp2y = this.endY + (Math.random() - 0.5) * 250
-        const opacity = 0.03 + Math.random() * 0.05
-        const isLight = theme === 'light'
-        this.color = isLight ? `rgba(9, 9, 11, ${opacity})` : `rgba(255, 255, 255, ${opacity})`
-        this.width = 1.0
-      }
-
-      getPoint(t: number) {
-        const mt = 1 - t
-        const mt2 = mt * mt
-        const mt3 = mt2 * mt
-        const t2 = t * t
-        const t3 = t2 * t
-        const x = mt3 * this.startX + 3 * mt2 * t * this.cp1x + 3 * mt * t2 * this.cp2x + t3 * this.endX
-        const y = mt3 * this.startY + 3 * mt2 * t * this.cp1y + 3 * mt * t2 * this.cp2y + t3 * this.endY
-        return { x, y }
-      }
-
-      draw() {
-        if (!ctx) return
-        ctx.strokeStyle = this.color
-        ctx.lineWidth = this.width
-        ctx.beginPath()
-        ctx.moveTo(this.startX, this.startY)
-        ctx.bezierCurveTo(this.cp1x, this.cp1y, this.cp2x, this.cp2y, this.endX, this.endY)
-        ctx.stroke()
-      }
-    }
-
-    class Particle {
-      curve: Curve
-      t: number
-      speed: number
-      size: number
-      alpha: number
-
-      constructor(curves: Curve[]) {
-        this.curve = curves[Math.floor(Math.random() * curves.length)]
-        this.t = Math.random()
-        this.speed = 0.0003 + Math.random() * 0.0006
-        this.size = 0.7 + Math.random() * 0.6
-        this.alpha = 0.1 + Math.random() * 0.15
-      }
-
-      update() {
-        this.t += this.speed
-        if (this.t > 1) {
-          this.t = 0
-        }
-      }
-
-      draw() {
-        if (!ctx) return
-        const pt = this.curve.getPoint(this.t)
-        let fade = 1
-        if (this.t < 0.15) fade = this.t / 0.15
-        else if (this.t > 0.85) fade = (1 - this.t) / 0.15
-        const isLight = theme === 'light'
-        ctx.fillStyle = isLight ? `rgba(9, 9, 11, ${this.alpha * fade})` : `rgba(255, 255, 255, ${this.alpha * fade})`
-        ctx.beginPath()
-        ctx.arc(pt.x, pt.y, this.size, 0, Math.PI * 2)
-        ctx.fill()
-      }
-    }
-
-    let curves: Curve[] = []
-    let particles: Particle[] = []
-
-    const init = () => {
-      curves = []
-      particles = []
-      const totalCurves = 120
-      for (let i = 0; i < totalCurves; i++) {
-        curves.push(new Curve(i, totalCurves))
-      }
-      for (let i = 0; i < 600; i++) {
-        particles.push(new Particle(curves))
-      }
-    }
-
-    init()
-
-    const animate = () => {
-      if (!ctx) return
-      const isLight = theme === 'light'
-      ctx.fillStyle = isLight ? '#ffffff' : '#000000'
-      ctx.fillRect(0, 0, width, height)
-      curves.forEach(c => c.draw())
-      particles.forEach(p => {
-        p.update()
-        p.draw()
-      })
-      const mask = ctx.createRadialGradient(width / 2, height / 2, 80, width / 2, height / 2, 400)
-      mask.addColorStop(0, isLight ? 'rgba(255, 255, 255, 0.95)' : 'rgba(0, 0, 0, 0.95)')
-      mask.addColorStop(1, isLight ? 'rgba(255, 255, 255, 0)' : 'rgba(0, 0, 0, 0)')
-      ctx.fillStyle = mask
-      ctx.fillRect(0, 0, width, height)
-      animationFrameId = requestAnimationFrame(animate)
-    }
-
-    animate()
-
-    return () => {
-      window.removeEventListener('resize', handleResize)
-      cancelAnimationFrame(animationFrameId)
-    }
-  }, [theme])
-
-  const isLight = theme === 'light'
-  return (
-    <canvas
-      ref={canvasRef}
-      className={`absolute inset-0 w-full h-full pointer-events-none z-0 ${isLight ? 'bg-white' : 'bg-black'}`}
-    />
-  )
-}
-
-interface ConnectorCardProps {
-  title: string
-  description: string
-  icon: React.ComponentType<{ className?: string }>
-  category: string
-}
-
-const ConnectorCard: React.FC<ConnectorCardProps> = ({ title, description, icon: Icon, category }) => {
-  const { theme } = useAuthStore()
-  const mouseX = useMotionValue(0)
-  const mouseY = useMotionValue(0)
-
-  function handleMouseMove({ currentTarget, clientX, clientY }: React.MouseEvent) {
-    const { left, top } = currentTarget.getBoundingClientRect()
-    mouseX.set(clientX - left)
-    mouseY.set(clientY - top)
-  }
-
-  const isLight = theme === 'light'
-  const glowColor = isLight ? 'rgba(9, 9, 11, 0.08)' : 'rgba(255, 255, 255, 0.12)'
-
-  return (
-    <motion.div
-      onMouseMove={handleMouseMove}
-      whileHover={{ y: -4 }}
-      transition={{ type: 'spring', stiffness: 50, damping: 20 }}
-      className="group relative rounded-2xl border border-border-primary bg-panel-card/40 p-8 space-y-6 overflow-hidden"
-    >
-      <motion.div
-        className="pointer-events-none absolute -inset-px rounded-2xl opacity-0 group-hover:opacity-100 transition duration-300"
-        style={{
-          background: useMotionTemplate`
-            radial-gradient(
-              150px circle at ${mouseX}px ${mouseY}px,
-              ${glowColor},
-              transparent 80%
-            )
-          `
-        }}
-      />
-      <div className="h-10 w-10 bg-background rounded-lg border border-border-primary flex items-center justify-center">
-        <Icon className="h-5 w-5 text-text-primary" />
-      </div>
-      <div className="space-y-2">
-        <div className="flex justify-between items-baseline">
-          <h3 className="text-sm font-black tracking-wider uppercase text-text-primary">{title}</h3>
-          <span className="text-[9px] text-text-muted font-bold uppercase tracking-wider">{category}</span>
-        </div>
-        <p className="text-text-secondary text-xs font-light leading-relaxed">
-          {description}
-        </p>
-      </div>
-      <div className="flex items-center gap-1.5 text-[10px] text-text-primary hover:text-text-muted font-black uppercase tracking-wider cursor-pointer">
-        <span>Explore Connector</span>
-        <ArrowRight className="h-3 w-3" />
-      </div>
-    </motion.div>
-  )
-}
-
 export const Login: React.FC = () => {
-  const { login, isFirstLogin, token, email, activeTenant, role, theme, toggleTheme } = useAuthStore()
+  const { login, isFirstLogin, token, email, activeTenant, role } = useAuthStore()
   const [error, setError] = useState('')
   const [isAuthenticating, setIsAuthenticating] = useState(false)
-  const [isTransitioned, setIsTransitioned] = useState(false)
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
   const [isFirstLoginState, setIsFirstLoginState] = useState(false)
-  const [showGoogleModal, setShowGoogleModal] = useState(false)
-  const [googleEmail, setGoogleEmail] = useState('')
-  const [googleName, setGoogleName] = useState('')
 
   const [tempToken, setTempToken] = useState<string | null>(null)
   const [tempEmail, setTempEmail] = useState<string | null>(null)
@@ -272,9 +52,18 @@ export const Login: React.FC = () => {
   const navigate = useNavigate()
 
   useEffect(() => {
+    const expired = localStorage.getItem('session_expired_inactivity')
+    if (expired) {
+      localStorage.removeItem('session_expired_inactivity')
+      setTimeout(() => {
+        notify.error("Your session expired due to inactivity.")
+      }, 200)
+    }
+  }, [])
+
+  useEffect(() => {
     if (token && isFirstLogin) {
       setIsFirstLoginState(true)
-      setIsTransitioned(true)
       setTempToken(token)
       setTempEmail(email)
       setTempTenant(activeTenant)
@@ -286,8 +75,8 @@ export const Login: React.FC = () => {
     resolver: zodResolver(loginSchema),
     defaultValues: {
       tenant: '',
-      email: '',
-      password: '',
+      email: APP_CONFIG.DEMO_EMAIL,
+      password: 'admin123',
     }
   })
 
@@ -309,13 +98,15 @@ export const Login: React.FC = () => {
     }
   })
 
+  // ─── Submit Handlers ────────────────────────────────────────────────────────
+
   const onLoginSubmit = async (data: LoginFormData) => {
     setError('')
     setIsAuthenticating(true)
     try {
       const response = await apiClient.post('/api/v1/auth/login', {
-        tenant: data.tenant,
-        username: data.email,
+        tenant: (data.tenant || '').trim() || 'System Workspace',
+        username: data.email.trim(),
         password: data.password
       })
       const { access_token, reset_token, tenant_name, role, email, is_first_login } = response.data
@@ -350,9 +141,9 @@ export const Login: React.FC = () => {
     setIsAuthenticating(true)
     try {
       const response = await apiClient.post('/api/v1/auth/register', {
-        tenant: data.tenant,
-        username: data.username,
-        email: data.email,
+        tenant: data.tenant.trim(),
+        username: data.username.trim(),
+        email: data.email.trim(),
         password: data.password
       })
       const { access_token, tenant_name, role, email } = response.data
@@ -389,634 +180,279 @@ export const Login: React.FC = () => {
     }
   }
 
-  const handleGoogleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!googleEmail || !googleName) return
-    setError('')
-    setIsAuthenticating(true)
-    try {
-      const mockGoogleId = `google_${Math.floor(100000000000000000000 + Math.random() * 900000000000000000000).toString()}`
-      const response = await apiClient.post('/api/v1/auth/google', {
-        email: googleEmail,
-        name: googleName,
-        google_id: mockGoogleId
-      })
-      const { access_token, tenant_name, role, email } = response.data
-      login(access_token, tenant_name, role, email, false)
-      setShowGoogleModal(false)
-      navigate('/dashboard')
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Google federated login failed.')
-    } finally {
-      setIsAuthenticating(false)
-    }
-  }
-
-  const isLight = theme === 'light'
-
   return (
-    <div className="relative w-screen min-h-screen bg-background text-text-primary font-sans selection:bg-text-primary/10 selection:text-text-primary overflow-x-hidden">
+    <div className="min-h-screen w-full flex items-center justify-center bg-gray-50 dark:bg-[#000000] text-gray-900 dark:text-gray-100 font-sans px-4 py-8">
       
-      <DataTunnel />
-
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none opacity-[0.03] z-0">
-        <svg viewBox="0 0 100 100" className="w-[50vw] h-[50vw] max-w-[600px] max-h-[600px] text-text-primary">
-          <path d="M 32 35 L 68 35 L 68 50 L 32 50 L 32 65 L 68 65" 
-                fill="none" 
-                stroke="currentColor" 
-                strokeWidth="10" 
-                strokeLinecap="square" 
-                strokeLinejoin="miter" />
-          <rect x="62" y="44" width="12" height="12" fill="currentColor" />
-        </svg>
-      </div>
-
-      <header className="fixed top-0 left-0 right-0 h-20 border-b border-border-primary bg-background/60 backdrop-blur-md flex items-center justify-between px-8 md:px-16 z-50">
-        <div className="flex items-center gap-3">
-          <svg viewBox="0 0 100 100" className="h-8 w-8 shrink-0">
-            <rect width="100" height="100" rx="24" fill={isLight ? '#ffffff' : '#000000'} className="stroke border-border-primary" />
-            <path d="M 32 35 L 68 35 L 68 50 L 32 50 L 32 65 L 68 65" 
-                  fill="none" 
-                  stroke={isLight ? '#09090b' : '#ffffff'} 
-                  strokeWidth="10" 
-                  strokeLinecap="square" 
-                  strokeLinejoin="miter" />
-            <rect x="62" y="44" width="12" height="12" fill={isLight ? '#09090b' : '#ffffff'} />
-          </svg>
-          <span className="font-bold text-sm tracking-wider uppercase text-text-primary">
-            synq.to
-          </span>
+      {/* Centered Monochromatic Form Card */}
+      <motion.div
+        initial={{ opacity: 0, y: 15 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3, ease: 'easeOut' }}
+        className="w-full max-w-sm bg-white dark:bg-[#0F0F0F] p-8 rounded-xl border border-gray-200 dark:border-white/10 shadow-2xl h-auto space-y-6"
+      >
+        {/* Header */}
+        <div className="flex flex-col items-center space-y-3 text-center">
+          <div className="h-12 w-12 bg-gray-50 dark:bg-[#1A1A1A] border border-gray-200 dark:border-white/10 rounded-xl flex items-center justify-center shadow-sm">
+            <svg viewBox="0 0 100 100" className="h-7 w-7 text-gray-900 dark:text-white">
+              <path
+                d="M 32 35 L 68 35 L 68 50 L 32 50 L 32 65 L 68 65"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="10"
+                strokeLinecap="square"
+                strokeLinejoin="miter"
+              />
+              <rect x="62" y="44" width="12" height="12" fill="currentColor" />
+            </svg>
+          </div>
+          <h1 className="text-xl font-bold tracking-wider text-gray-900 dark:text-white uppercase">
+            {APP_CONFIG.APP_NAME}
+          </h1>
         </div>
 
-        <nav className="hidden md:flex items-center gap-8">
-          <a href="#" className="text-xs font-semibold text-text-secondary hover:text-text-primary uppercase tracking-wider transition-colors">Product</a>
-          <a href="#" className="text-xs font-semibold text-text-secondary hover:text-text-primary uppercase tracking-wider transition-colors">Solutions</a>
-          <a href="#" className="text-xs font-semibold text-text-secondary hover:text-text-primary uppercase tracking-wider transition-colors">Docs</a>
-          <a href="#" className="text-xs font-semibold text-text-secondary hover:text-text-primary uppercase tracking-wider transition-colors">Pricing</a>
-        </nav>
-
-        <div className="flex items-center gap-4">
-          <button
-            onClick={toggleTheme}
-            className="p-2 border border-border-primary bg-panel hover:bg-panel-card text-text-secondary hover:text-text-primary rounded-full transition-all cursor-pointer flex items-center justify-center"
-            title={isLight ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
-            aria-label={isLight ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
-          >
-            {isLight ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
-          </button>
-          <button 
-            onClick={() => setIsTransitioned(true)}
-            className="px-5 py-2.5 bg-text-primary hover:bg-background hover:text-text-primary text-background border border-text-primary text-[10px] font-black uppercase tracking-widest rounded-full transition-all cursor-pointer shadow-[0_0_15px_rgba(255,255,255,0.1)]"
-            aria-label="Try it free"
-          >
-            TRY IT FREE
-          </button>
-        </div>
-      </header>
-
-      {!isTransitioned && (
-        <div className="relative pt-44 pb-32 z-10">
-          
-          <div className="max-w-4xl mx-auto px-6 text-center space-y-8">
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ type: 'spring', stiffness: 50, damping: 20 }}
-              className="space-y-4"
-            >
-              <h1 className="text-4xl md:text-6xl font-black tracking-tight text-text-primary leading-tight uppercase">
-                BUILD PIPELINES WITH <br />
-                <span className="text-transparent bg-clip-text bg-gradient-to-r from-text-primary to-text-secondary drop-shadow-[0_0_20px_rgba(255,255,255,0.15)]">
-                  synq.to
-                </span>
-              </h1>
-              <p className="text-text-muted text-xs md:text-sm tracking-widest uppercase max-w-lg mx-auto leading-relaxed">
-                (ZERO-TOUCH ETL. AUTO-INFER SCHEMAS AND SYNC DATABASES IN MINUTES, NOT DAYS.)
-              </p>
-            </motion.div>
-
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ type: 'spring', stiffness: 50, damping: 20, delay: 0.1 }}
-              className="flex flex-wrap items-center justify-center gap-4"
-            >
-              <button
-                onClick={() => setIsTransitioned(true)}
-                className="px-8 py-4 bg-text-primary text-background hover:bg-background hover:text-text-primary border border-text-primary font-black text-xs tracking-widest uppercase rounded-full transition-all cursor-pointer shadow-[0_0_20px_rgba(255,255,255,0.1)]"
-                aria-label="Enter application"
-              >
-                ENTER SYNQ.TO
-              </button>
-              <button
-                className="px-8 py-4 bg-transparent hover:bg-panel border border-border-primary text-text-primary font-black text-xs tracking-widest uppercase rounded-full transition-all cursor-pointer"
-                aria-label="Talk to sales"
-              >
-                TALK TO US
-              </button>
-            </motion.div>
+        {/* Global Error Banner */}
+        {error && (
+          <div className="p-3 bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 text-xs rounded flex items-start gap-2">
+            <ShieldAlert className="h-4 w-4 shrink-0 mt-0.5" />
+            <span>{error}</span>
           </div>
+        )}
 
-          <div className="max-w-5xl mx-auto px-8 pt-16 flex flex-wrap items-center justify-center gap-8 md:gap-12 text-text-muted text-xs font-semibold uppercase tracking-wider select-none">
-            <div className="flex items-center gap-2 hover:text-text-primary transition-colors duration-200 cursor-default">
-              <ShieldCheck className="h-4 w-4" />
-              <span>ISO 27001 Certified</span>
-            </div>
-            <div className="flex items-center gap-2 hover:text-text-primary transition-colors duration-200 cursor-default">
-              <Lock className="h-4 w-4" />
-              <span>SOC 2 Type II Certified</span>
-            </div>
-            <div className="flex items-center gap-2 hover:text-text-primary transition-colors duration-200 cursor-default">
-              <Globe className="h-4 w-4" />
-              <span>GDPR Compliant</span>
-            </div>
-            <div className="flex items-center gap-2 hover:text-text-primary transition-colors duration-200 cursor-default">
-              <Database className="h-4 w-4" />
-              <span>HIPAA Secure</span>
-            </div>
-          </div>
-
-          <div className="max-w-5xl mx-auto px-8 pt-32 space-y-16">
-            <div className="space-y-2 text-center">
-              <h2 className="text-xl md:text-3xl font-black tracking-tight text-text-primary uppercase">
-                Hundreds of connectors for your data pipelines
-              </h2>
-              <p className="text-text-muted text-xs uppercase tracking-widest">
-                Every source, every destination. Zero manual mapping.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <ConnectorCard 
-                title="REST API Source" 
-                category="Source" 
-                description="Auto-infer structure from nested arrays and paths dynamically. Fully compatible with any REST API endpoint." 
-                icon={Globe} 
+        {/* Form fields stacked vertically */}
+        {isFirstLoginState ? (
+          /* Force Reset View */
+          <form onSubmit={resetForm.handleSubmit(onResetSubmit)} className="flex flex-col gap-4">
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 tracking-wider uppercase block">
+                New Secure Password
+              </label>
+              <input
+                type="password"
+                {...resetForm.register('newPassword')}
+                disabled={isAuthenticating}
+                className="w-full bg-gray-50 dark:bg-[#1A1A1A] border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white placeholder-gray-400 p-3 rounded focus:ring-1 focus:ring-gray-500 focus:outline-none transition-all font-mono"
               />
-              <ConnectorCard 
-                title="PostgreSQL Destination" 
-                category="Destination" 
-                description="Provision schemas automatically. Handles indexes, column generation, and secure SSH bastion jump server routing." 
-                icon={Database} 
-              />
-              <ConnectorCard 
-                title="MySQL Destination" 
-                category="Destination" 
-                description="Stream rows dynamically with Celery tasks. Automatically serializes nested payloads into structured JSON text." 
-                icon={Network} 
-              />
+              {resetForm.formState.errors.newPassword && (
+                <p className="text-[11px] text-red-500 flex items-center gap-1 mt-1">
+                  <ShieldAlert className="h-3.5 w-3.5 shrink-0" /> {resetForm.formState.errors.newPassword.message}
+                </p>
+              )}
             </div>
-          </div>
 
-          {/* Landing Page Footer */}
-          <footer className="w-full py-12 border-t border-border-primary bg-panel mt-32 z-10 select-none">
-            <div className="max-w-5xl mx-auto px-8 flex flex-col md:flex-row items-center justify-between gap-6 text-[10px] font-semibold uppercase tracking-wider text-text-muted">
-              <div className="flex items-center gap-1.5 text-text-primary">
-                <span className="font-bold">synq.to</span>
-                <span className="opacity-50">|</span>
-                <span className="text-text-muted">© {new Date().getFullYear()} All rights reserved.</span>
-              </div>
-              
-              <div className="flex flex-wrap items-center justify-center gap-8">
-                <a href="#" className="hover:text-text-primary transition-colors">Privacy Policy</a>
-                <a href="#" className="hover:text-text-primary transition-colors">Terms of Service</a>
-                <a href="#" className="hover:text-text-primary transition-colors">Security Statement</a>
-              </div>
-
-              <div className="flex items-center gap-6">
-                <div className="flex items-center gap-1 hover:text-text-primary transition-colors" title="SOC 2 Type II Certified">
-                  <ShieldCheck className="h-4 w-4" />
-                  <span>SOC 2 Type II</span>
-                </div>
-                <div className="flex items-center gap-1 hover:text-text-primary transition-colors" title="GDPR Compliant">
-                  <Globe className="h-4 w-4" />
-                  <span>GDPR Compliant</span>
-                </div>
-              </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 tracking-wider uppercase block">
+                Confirm Password
+              </label>
+              <input
+                type="password"
+                {...resetForm.register('confirmPassword')}
+                disabled={isAuthenticating}
+                className="w-full bg-gray-50 dark:bg-[#1A1A1A] border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white placeholder-gray-400 p-3 rounded focus:ring-1 focus:ring-gray-500 focus:outline-none transition-all font-mono"
+              />
+              {resetForm.formState.errors.confirmPassword && (
+                <p className="text-[11px] text-red-500 flex items-center gap-1 mt-1">
+                  <ShieldAlert className="h-3.5 w-3.5 shrink-0" /> {resetForm.formState.errors.confirmPassword.message}
+                </p>
+              )}
             </div>
-          </footer>
-        </div>
-      )}
-
-      {isTransitioned && (
-        <div className="fixed inset-0 flex flex-col items-center justify-between z-50 bg-background/75 backdrop-blur-md px-4 py-8 overflow-y-auto">
-          <div className="h-4 hidden md:block"></div>
-          <motion.div
-            initial={{ opacity: 0, y: 60 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ type: 'spring', stiffness: 50, damping: 20 }}
-            className="w-full max-w-md bg-panel border border-border-primary rounded-3xl p-8 space-y-6 shadow-[0_0_50px_rgba(0,0,0,0.06)] relative animate-fadeIn"
-          >
-            {!isFirstLoginState && (
-              <button
-                onClick={() => setIsTransitioned(false)}
-                className="absolute top-6 left-6 text-text-muted hover:text-text-primary transition-colors cursor-pointer flex items-center gap-1.5 text-[10px] uppercase tracking-wider font-semibold"
-                aria-label="Go back"
-              >
-                <ArrowLeft className="h-3 w-3" />
-                <span>Back</span>
-              </button>
-            )}
 
             <button
-              onClick={toggleTheme}
-              type="button"
-              className="absolute top-6 right-6 p-1.5 border border-border-primary bg-panel hover:bg-panel-card text-text-secondary hover:text-text-primary rounded-lg transition-all cursor-pointer flex items-center justify-center animate-fadeIn"
-              title={isLight ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
-              aria-label={isLight ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
+              type="submit"
+              disabled={isAuthenticating}
+              className="w-full bg-gray-900 dark:bg-gray-100 text-white dark:text-black font-bold tracking-wide rounded-md py-3 mt-4 hover:opacity-90 transition-colors cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
             >
-              {isLight ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+              {isAuthenticating ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin text-white dark:text-black" />
+                  <span>Updating Password...</span>
+                </>
+              ) : (
+                'Reset & Access'
+              )}
             </button>
+          </form>
+        ) : authMode === 'login' ? (
+          /* Login View */
+          <form onSubmit={loginForm.handleSubmit(onLoginSubmit)} className="flex flex-col gap-4">
+            {/* Workspace Tenant is autofilled under the hood */}
 
-            {isFirstLoginState ? (
-              <div className="space-y-6">
-                <div className="space-y-1.5 text-center pt-2">
-                  <h2 className="text-sm font-black tracking-widest text-text-primary uppercase">Force Password Reset</h2>
-                  <p className="text-[10px] text-text-muted uppercase tracking-wider">Configure your new credentials to authorize node access</p>
-                </div>
-
-                {error && (
-                  <div className="p-3 bg-panel-card border border-border-primary text-text-secondary text-[11px] uppercase tracking-wider rounded-lg flex items-center gap-2">
-                    <ShieldAlert className="h-4 w-4 shrink-0 text-text-muted" />
-                    <span>{error}</span>
-                  </div>
-                )}
-
-                <form onSubmit={resetForm.handleSubmit(onResetSubmit)} className="space-y-4">
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-black text-text-secondary uppercase tracking-wider block">
-                      New Secure Password
-                    </label>
-                    <input
-                      type="password"
-                      placeholder="••••••••••••"
-                      {...resetForm.register('newPassword')}
-                      disabled={isAuthenticating}
-                      className="w-full bg-background border border-border-primary text-text-primary placeholder-text-muted rounded-xl px-4 py-3 text-xs focus:border-text-primary focus:outline-none transition-all font-mono"
-                    />
-                    {resetForm.formState.errors.newPassword && (
-                      <p className="text-[10px] text-text-muted flex items-center gap-1 mt-1 uppercase tracking-wide">
-                        <ShieldAlert className="h-3.5 w-3.5 shrink-0" /> {resetForm.formState.errors.newPassword.message}
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-black text-text-secondary uppercase tracking-wider block">
-                      Confirm New Password
-                    </label>
-                    <input
-                      type="password"
-                      placeholder="••••••••••••"
-                      {...resetForm.register('confirmPassword')}
-                      disabled={isAuthenticating}
-                      className="w-full bg-background border border-border-primary text-text-primary placeholder-text-muted rounded-xl px-4 py-3 text-xs focus:border-text-primary focus:outline-none transition-all font-mono"
-                    />
-                    {resetForm.formState.errors.confirmPassword && (
-                      <p className="text-[10px] text-text-muted flex items-center gap-1 mt-1 uppercase tracking-wide">
-                        <ShieldAlert className="h-3.5 w-3.5 shrink-0" /> {resetForm.formState.errors.confirmPassword.message}
-                      </p>
-                    )}
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={isAuthenticating}
-                    className="w-full mt-2 bg-text-primary hover:bg-background hover:text-text-primary border border-text-primary text-background font-black py-3 rounded-xl transition-all duration-300 text-[10px] uppercase tracking-widest cursor-pointer flex items-center justify-center gap-2"
-                    aria-label="Reset password and authenticate"
-                  >
-                    {isAuthenticating ? (
-                      <>
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        <span>Updating Session...</span>
-                      </>
-                    ) : (
-                      'Reset & Authenticate'
-                    )}
-                  </button>
-                </form>
-              </div>
-            ) : (
-              <div className="space-y-6">
-                <div className="flex border-b border-border-primary justify-center">
-                  <button
-                    type="button"
-                    onClick={() => { setAuthMode('login'); setError(''); }}
-                    className={`pb-3.5 px-6 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all ${
-                      authMode === 'login' ? 'border-text-primary text-text-primary' : 'border-transparent text-text-muted hover:text-text-primary'
-                    }`}
-                  >
-                    Login
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { setAuthMode('register'); setError(''); }}
-                    className={`pb-3.5 px-6 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all ${
-                      authMode === 'register' ? 'border-text-primary text-text-primary' : 'border-transparent text-text-muted hover:text-text-primary'
-                    }`}
-                  >
-                    Register Workspace
-                  </button>
-                </div>
-
-                {error && (
-                  <div className="p-3 bg-panel-card border border-border-primary text-text-secondary text-[11px] uppercase tracking-wider rounded-lg flex items-center gap-2">
-                    <ShieldAlert className="h-4 w-4 shrink-0 text-text-muted" />
-                    <span>{error}</span>
-                  </div>
-                )}
-
-                {authMode === 'login' ? (
-                  <form onSubmit={loginForm.handleSubmit(onLoginSubmit)} className="space-y-4 pt-1">
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-black text-text-secondary uppercase tracking-wider block">
-                        Workspace Tenant
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="e.g. acme_warehouse"
-                        {...loginForm.register('tenant')}
-                        disabled={isAuthenticating}
-                        className="w-full bg-background border border-border-primary text-text-primary placeholder-text-muted rounded-xl px-4 py-3 text-xs tracking-wider focus:border-text-primary focus:outline-none transition-all uppercase"
-                      />
-                      {loginForm.formState.errors.tenant && (
-                        <p className="text-[10px] text-text-muted flex items-center gap-1 mt-1 uppercase tracking-wide">
-                          <ShieldAlert className="h-3.5 w-3.5 shrink-0" /> {loginForm.formState.errors.tenant.message}
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-black text-text-secondary uppercase tracking-wider block">
-                        Security Email
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="operator@synq.to"
-                        {...loginForm.register('email')}
-                        disabled={isAuthenticating}
-                        className="w-full bg-background border border-border-primary text-text-primary placeholder-text-muted rounded-xl px-4 py-3 text-xs tracking-wider focus:border-text-primary focus:outline-none transition-all font-mono"
-                      />
-                      {loginForm.formState.errors.email && (
-                        <p className="text-[10px] text-text-muted flex items-center gap-1 mt-1 uppercase tracking-wide">
-                          <ShieldAlert className="h-3.5 w-3.5 shrink-0" /> {loginForm.formState.errors.email.message}
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-black text-text-secondary uppercase tracking-wider block">
-                        Access Pass
-                      </label>
-                      <input
-                        type="password"
-                        placeholder="••••••••••••"
-                        {...loginForm.register('password')}
-                        disabled={isAuthenticating}
-                        className="w-full bg-background border border-border-primary text-text-primary placeholder-text-muted rounded-xl px-4 py-3 text-xs tracking-wider focus:border-text-primary focus:outline-none transition-all font-mono"
-                      />
-                      {loginForm.formState.errors.password && (
-                        <p className="text-[10px] text-text-muted flex items-center gap-1 mt-1 uppercase tracking-wide">
-                          <ShieldAlert className="h-3.5 w-3.5 shrink-0" /> {loginForm.formState.errors.password.message}
-                        </p>
-                      )}
-                    </div>
-
-                    <button
-                      type="submit"
-                      disabled={isAuthenticating}
-                      className="w-full mt-2 bg-text-primary hover:bg-background hover:text-text-primary border border-text-primary text-background font-black py-3 rounded-xl transition-all duration-300 text-[10px] uppercase tracking-widest cursor-pointer flex items-center justify-center gap-2"
-                      aria-label="Authenticate session"
-                    >
-                      {isAuthenticating ? (
-                        <>
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          <span>Configuring Node...</span>
-                        </>
-                      ) : (
-                        'Authenticate Session'
-                      )}
-                    </button>
-
-                    <div className="relative flex py-2 items-center">
-                      <div className="flex-grow border-t border-border-primary"></div>
-                      <span className="flex-shrink mx-4 text-text-muted text-[9px] uppercase tracking-widest font-black">OR</span>
-                      <div className="flex-grow border-t border-border-primary"></div>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => setShowGoogleModal(true)}
-                      className="w-full bg-transparent hover:bg-panel border border-border-primary text-text-primary font-black py-3 rounded-xl transition-all duration-200 text-[10px] uppercase tracking-widest cursor-pointer flex items-center justify-center gap-2"
-                      aria-label="Sign in with Google"
-                    >
-                      <Globe className="h-3.5 w-3.5 text-text-muted" />
-                      <span>Sign in with Google</span>
-                    </button>
-                  </form>
-                ) : (
-                  <form onSubmit={registerForm.handleSubmit(onRegisterSubmit)} className="space-y-4 pt-1">
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-black text-text-secondary uppercase tracking-wider block">
-                        Workspace Name
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="e.g. Lenovo"
-                        {...registerForm.register('tenant')}
-                        disabled={isAuthenticating}
-                        className="w-full bg-background border border-border-primary text-text-primary placeholder-text-muted rounded-xl px-4 py-3 text-xs tracking-wider focus:border-text-primary focus:outline-none transition-all uppercase"
-                      />
-                      {registerForm.formState.errors.tenant && (
-                        <p className="text-[10px] text-text-muted flex items-center gap-1 mt-1 uppercase tracking-wide">
-                          <ShieldAlert className="h-3.5 w-3.5 shrink-0" /> {registerForm.formState.errors.tenant.message}
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-black text-text-secondary uppercase tracking-wider block">
-                        Operator Username
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="e.g. aditya"
-                        {...registerForm.register('username')}
-                        disabled={isAuthenticating}
-                        className="w-full bg-background border border-border-primary text-text-primary placeholder-text-muted rounded-xl px-4 py-3 text-xs tracking-wider focus:border-text-primary focus:outline-none transition-all"
-                      />
-                      {registerForm.formState.errors.username && (
-                        <p className="text-[10px] text-text-muted flex items-center gap-1 mt-1 uppercase tracking-wide">
-                          <ShieldAlert className="h-3.5 w-3.5 shrink-0" /> {registerForm.formState.errors.username.message}
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-black text-text-secondary uppercase tracking-wider block">
-                        Operator Email
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="aditya@lenovo.com"
-                        {...registerForm.register('email')}
-                        disabled={isAuthenticating}
-                        className="w-full bg-background border border-border-primary text-text-primary placeholder-text-muted rounded-xl px-4 py-3 text-xs tracking-wider focus:border-text-primary focus:outline-none transition-all font-mono"
-                      />
-                      {registerForm.formState.errors.email && (
-                        <p className="text-[10px] text-text-muted flex items-center gap-1 mt-1 uppercase tracking-wide">
-                          <ShieldAlert className="h-3.5 w-3.5 shrink-0" /> {registerForm.formState.errors.email.message}
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-black text-text-secondary uppercase tracking-wider block">
-                        Password
-                      </label>
-                      <input
-                        type="password"
-                        placeholder="••••••••••••"
-                        {...registerForm.register('password')}
-                        disabled={isAuthenticating}
-                        className="w-full bg-background border border-border-primary text-text-primary placeholder-text-muted rounded-xl px-4 py-3 text-xs tracking-wider focus:border-text-primary focus:outline-none transition-all font-mono"
-                      />
-                      {registerForm.formState.errors.password && (
-                        <p className="text-[10px] text-text-muted flex items-center gap-1 mt-1 uppercase tracking-wide">
-                          <ShieldAlert className="h-3.5 w-3.5 shrink-0" /> {registerForm.formState.errors.password.message}
-                        </p>
-                      )}
-                    </div>
-
-                    <button
-                      type="submit"
-                      disabled={isAuthenticating}
-                      className="w-full mt-2 bg-text-primary hover:bg-background hover:text-text-primary border border-text-primary text-background font-black py-3 rounded-xl transition-all duration-300 text-[10px] uppercase tracking-widest cursor-pointer flex items-center justify-center gap-2"
-                      aria-label="Create workspace and register owner"
-                    >
-                      {isAuthenticating ? (
-                        <>
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          <span>Registering Node...</span>
-                        </>
-                      ) : (
-                        'Create Workspace & Owner'
-                      )}
-                    </button>
-                  </form>
-                )}
-              </div>
-            )}
-
-            <div className="text-center flex items-center justify-center gap-1.5 text-text-muted text-[10px] border-t border-border-primary pt-4 uppercase tracking-wider font-semibold">
-              <Lock className="h-3 w-3 text-text-muted" />
-              <span>Secure Enterprise Node</span>
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 tracking-wider uppercase block">
+                Security Email
+              </label>
+              <input
+                type="text"
+                {...loginForm.register('email')}
+                disabled={isAuthenticating}
+                className="w-full bg-gray-50 dark:bg-[#1A1A1A] border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white placeholder-gray-400 p-3 rounded focus:ring-1 focus:ring-gray-500 focus:outline-none transition-all font-mono"
+              />
+              {loginForm.formState.errors.email && (
+                <p className="text-[11px] text-red-500 flex items-center gap-1 mt-1">
+                  <ShieldAlert className="h-3.5 w-3.5 shrink-0" /> {loginForm.formState.errors.email.message}
+                </p>
+              )}
             </div>
 
-          </motion.div>
-
-          {/* Login Page Legal Compliance Footer */}
-          <footer className="w-full max-w-md text-center mt-6 text-[10px] font-semibold uppercase tracking-wider text-text-muted flex flex-col gap-3 z-10 select-none">
-            <div className="flex justify-center gap-6">
-              <a href="#" className="hover:text-text-primary transition-colors">Privacy Policy</a>
-              <a href="#" className="hover:text-text-primary transition-colors">Terms of Service</a>
-              <a href="#" className="hover:text-text-primary transition-colors">Security</a>
-            </div>
-            <div className="flex items-center justify-center gap-4 text-text-muted">
-              <div className="flex items-center gap-1 hover:text-text-primary transition-colors">
-                <ShieldCheck className="h-3.5 w-3.5" />
-                <span>SOC 2 Type II</span>
-              </div>
-              <div className="flex items-center gap-1 hover:text-text-primary transition-colors">
-                <Globe className="h-3.5 w-3.5" />
-                <span>GDPR Compliant</span>
-              </div>
-            </div>
-            <div className="text-[9px] opacity-75">
-              © {new Date().getFullYear()} synq.to. All rights reserved.
-            </div>
-          </footer>
-        </div>
-      )}
-
-      {showGoogleModal && (
-        <div className="fixed inset-0 flex items-center justify-center z-55 bg-background/85 backdrop-blur-md px-4">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="w-full max-w-sm bg-panel border border-border-primary rounded-3xl p-8 space-y-6 shadow-2xl relative font-sans animate-fadeIn"
-          >
-            <button
-              onClick={toggleTheme}
-              type="button"
-              className="absolute top-6 right-6 p-1.5 border border-border-primary bg-panel hover:bg-panel-card text-text-secondary hover:text-text-primary rounded-lg transition-all cursor-pointer flex items-center justify-center animate-fadeIn"
-              title={isLight ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
-              aria-label={isLight ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
-            >
-              {isLight ? <Moon className="h-3.5 w-3.5" /> : <Sun className="h-3.5 w-3.5" />}
-            </button>
-
-            <div className="space-y-1.5 text-center">
-              <h3 className="text-xs font-black tracking-widest text-text-primary uppercase">Google OAuth Node</h3>
-              <p className="text-[9px] text-text-muted uppercase tracking-wider">Simulated Federated Identity Authorization</p>
-            </div>
-
-            <form onSubmit={handleGoogleSubmit} className="space-y-4">
-              <div className="space-y-1.5">
-                <label className="text-[9px] font-black text-text-secondary uppercase tracking-wider block">Account Name</label>
-                <div className="relative">
-                  <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-text-muted">
-                    <User className="h-3.5 w-3.5" />
-                  </span>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Anshika"
-                    value={googleName}
-                    onChange={e => setGoogleName(e.target.value)}
-                    className="w-full bg-background border border-border-primary text-text-primary placeholder-text-muted rounded-xl pl-9 pr-4 py-2.5 text-xs focus:border-text-primary focus:outline-none transition-all"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-[9px] font-black text-text-secondary uppercase tracking-wider block">Email Address</label>
-                <div className="relative">
-                  <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-text-muted">
-                    <Mail className="h-3.5 w-3.5 font-bold" />
-                  </span>
-                  <input
-                    type="email"
-                    required
-                    placeholder="anshika@lenovo.com"
-                    value={googleEmail}
-                    onChange={e => setGoogleEmail(e.target.value)}
-                    className="w-full bg-background border border-border-primary text-text-primary placeholder-text-muted rounded-xl pl-9 pr-4 py-2.5 text-xs focus:border-text-primary focus:outline-none transition-all font-mono"
-                  />
-                </div>
-              </div>
-
-              <div className="flex gap-3 pt-2">
+            <div className="space-y-1.5">
+              <div className="flex justify-between items-center">
+                <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 tracking-wider uppercase block">
+                  Access Pass
+                </label>
                 <button
                   type="button"
-                  onClick={() => setShowGoogleModal(false)}
-                  className="flex-1 py-2.5 bg-transparent hover:bg-panel border border-border-primary text-text-secondary hover:text-text-primary rounded-xl text-[10px] font-black uppercase tracking-widest cursor-pointer"
+                  onClick={() => notify.error("Please contact your workspace administrator to reset your password.")}
+                  className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white font-semibold cursor-pointer transition-colors"
                 >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isAuthenticating}
-                  className="flex-1 py-2.5 bg-text-primary hover:bg-background hover:text-text-primary border border-text-primary text-background rounded-xl text-[10px] font-black uppercase tracking-widest cursor-pointer flex items-center justify-center gap-1.5"
-                >
-                  {isAuthenticating ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Sign In'}
+                  Forgot Password?
                 </button>
               </div>
-            </form>
-          </motion.div>
-        </div>
-      )}
+              <input
+                type="password"
+                {...loginForm.register('password')}
+                disabled={isAuthenticating}
+                className="w-full bg-gray-50 dark:bg-[#1A1A1A] border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white placeholder-gray-400 p-3 rounded focus:ring-1 focus:ring-gray-500 focus:outline-none transition-all font-mono"
+              />
+              {loginForm.formState.errors.password && (
+                <p className="text-[11px] text-red-500 flex items-center gap-1 mt-1">
+                  <ShieldAlert className="h-3.5 w-3.5 shrink-0" /> {loginForm.formState.errors.password.message}
+                </p>
+              )}
+            </div>
 
+            <button
+              type="submit"
+              disabled={isAuthenticating}
+              className="w-full bg-gray-900 dark:bg-gray-100 text-white dark:text-black font-bold tracking-wide rounded-md py-3 mt-4 hover:opacity-90 transition-colors cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {isAuthenticating ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin text-white dark:text-black" />
+                  <span>Signing In...</span>
+                </>
+              ) : (
+                'Sign In'
+              )}
+            </button>
+          </form>
+        ) : (
+          /* Register View */
+          <form onSubmit={registerForm.handleSubmit(onRegisterSubmit)} className="flex flex-col gap-4">
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 tracking-wider uppercase block">
+                Workspace Name
+              </label>
+              <input
+                type="text"
+                {...registerForm.register('tenant')}
+                disabled={isAuthenticating}
+                className="w-full bg-gray-50 dark:bg-[#1A1A1A] border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white placeholder-gray-400 p-3 rounded focus:ring-1 focus:ring-gray-500 focus:outline-none transition-all uppercase"
+              />
+              {registerForm.formState.errors.tenant && (
+                <p className="text-[11px] text-red-500 flex items-center gap-1 mt-1">
+                  <ShieldAlert className="h-3.5 w-3.5 shrink-0" /> {registerForm.formState.errors.tenant.message}
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 tracking-wider uppercase block">
+                Operator Full Name
+              </label>
+              <input
+                type="text"
+                {...registerForm.register('username')}
+                disabled={isAuthenticating}
+                className="w-full bg-gray-50 dark:bg-[#1A1A1A] border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white placeholder-gray-400 p-3 rounded focus:ring-1 focus:ring-gray-500 focus:outline-none transition-all"
+              />
+              {registerForm.formState.errors.username && (
+                <p className="text-[11px] text-red-500 flex items-center gap-1 mt-1">
+                  <ShieldAlert className="h-3.5 w-3.5 shrink-0" /> {registerForm.formState.errors.username.message}
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 tracking-wider uppercase block">
+                Operator Email
+              </label>
+              <input
+                type="text"
+                {...registerForm.register('email')}
+                disabled={isAuthenticating}
+                className="w-full bg-gray-50 dark:bg-[#1A1A1A] border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white placeholder-gray-400 p-3 rounded focus:ring-1 focus:ring-gray-500 focus:outline-none transition-all font-mono"
+              />
+              {registerForm.formState.errors.email && (
+                <p className="text-[11px] text-red-500 flex items-center gap-1 mt-1">
+                  <ShieldAlert className="h-3.5 w-3.5 shrink-0" /> {registerForm.formState.errors.email.message}
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 tracking-wider uppercase block">
+                Password
+              </label>
+              <input
+                type="password"
+                {...registerForm.register('password')}
+                disabled={isAuthenticating}
+                className="w-full bg-gray-50 dark:bg-[#1A1A1A] border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white placeholder-gray-400 p-3 rounded focus:ring-1 focus:ring-gray-500 focus:outline-none transition-all font-mono"
+              />
+              {registerForm.formState.errors.password && (
+                <p className="text-[11px] text-red-500 flex items-center gap-1 mt-1">
+                  <ShieldAlert className="h-3.5 w-3.5 shrink-0" /> {registerForm.formState.errors.password.message}
+                </p>
+              )}
+            </div>
+
+            <button
+              type="submit"
+              disabled={isAuthenticating}
+              className="w-full bg-gray-900 dark:bg-gray-100 text-white dark:text-black font-bold tracking-wide rounded-md py-3 mt-4 hover:opacity-90 transition-colors cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {isAuthenticating ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin text-white dark:text-black" />
+                  <span>Registering...</span>
+                </>
+              ) : (
+                'Sign Up'
+              )}
+            </button>
+          </form>
+        )}
+
+        {/* Form Toggle Switch */}
+        <div className="text-center text-xs text-gray-500 pt-2 border-t border-gray-200 dark:border-gray-800">
+          {authMode === 'login' ? (
+            <>
+              Don't have an account?{' '}
+              <button
+                onClick={() => { setAuthMode('register'); setError(''); }}
+                className="text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white font-semibold cursor-pointer transition-colors"
+              >
+                Sign up
+              </button>
+            </>
+          ) : (
+            <>
+              Already have an account?{' '}
+              <button
+                onClick={() => { setAuthMode('login'); setError(''); }}
+                className="text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white font-semibold cursor-pointer transition-colors"
+              >
+                Sign in
+              </button>
+            </>
+          )}
+        </div>
+
+        {/* Footer Secure Node info */}
+        <div className="text-center flex items-center justify-center gap-1.5 text-gray-500 text-xs font-semibold">
+          <Lock className="h-3.5 w-3.5" />
+          <span>Secure Enterprise Node</span>
+        </div>
+      </motion.div>
     </div>
   )
 }

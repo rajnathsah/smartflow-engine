@@ -148,7 +148,7 @@ export const RAGPanel: React.FC = () => {
   }
 
   return (
-    <div className="flex flex-col md:flex-row gap-6 h-[calc(100vh-120px)] max-w-7xl font-sans">
+    <div className="flex flex-col md:flex-row gap-6 h-[calc(100vh-120px)] w-full font-sans">
       <div className="w-full md:w-5/12 bg-panel border border-border-primary rounded-xl flex flex-col justify-between p-6 overflow-hidden">
         <div className="space-y-6 flex-1 flex flex-col overflow-hidden">
           <div className="space-y-1">

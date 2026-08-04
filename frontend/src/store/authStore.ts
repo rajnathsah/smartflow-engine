@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { usePipelineStore } from './pipelineStore'
+import { APP_CONFIG } from '@/config/constants'
 
 export interface AuthState {
   activeTenant: string | null;
@@ -53,7 +54,7 @@ export const useAuthStore = create<AuthState>()(
       toggleTheme: () => set((state) => ({ theme: state.theme === 'dark' ? 'light' : 'dark' })),
     }),
     {
-      name: 'synq-auth',
+      name: APP_CONFIG.STORE_KEY_AUTH,
     }
   )
 )

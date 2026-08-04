@@ -1,16 +1,23 @@
 export type AuthType = 'bearer' | 'apikey' | 'none';
 export type DbDialect = 'postgresql' | 'mysql' | 'redshift' | 'snowflake' | 'bigquery';
 export type PipelineStatus = 'active' | 'syncing' | 'idle' | 'failed';
+export type FieldDataType = 'string' | 'integer' | 'boolean' | 'timestamp' | 'float' | 'json';
+export type FieldTransformation = 'none' | 'uppercase' | 'lowercase' | 'trim' | 'cast';
 
 export interface PipelineHeader {
   key: string;
   value: string;
 }
 
-export interface SchemaMappingEntry {
-  source_key: string;
-  target_key: string;
-  column_type?: string;
+export interface FieldMapping {
+  source_field: string;
+  target_field: string;
+  data_type: FieldDataType;
+  transformation: FieldTransformation;
+}
+
+export interface SchemaMappingConfig {
+  mappings: FieldMapping[];
 }
 
 export interface Source {
@@ -45,7 +52,7 @@ export interface Pipeline {
   sourceAuthType: AuthType;
   sourceToken?: string;
   sourceHeaders: PipelineHeader[];
-  schemaMapping: SchemaMappingEntry[];
+  schemaMapping: SchemaMappingConfig | null;
   
   targetDbDialect: DbDialect;
   targetDbHost: string;
@@ -59,6 +66,7 @@ export interface Pipeline {
   lastSync: string | null;
   recordsSynced: number;
   taskId?: string;
+  error?: string;
 }
 
 export interface EngineMetrics {

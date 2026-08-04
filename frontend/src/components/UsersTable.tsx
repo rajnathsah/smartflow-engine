@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import axios from 'axios'
 import { User as UserIcon, Plus, ShieldCheck, X, AlertCircle, CheckCircle2, Loader2, Lock } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
+import { APP_CONFIG } from '@/config/constants'
 
 interface UserRecord {
   id: string
@@ -16,7 +17,7 @@ interface UserRecord {
 export const UsersTable: React.FC = () => {
   const { token, role, activeTenant } = useAuthStore()
   const isAdmin = role === 'Tenant_Admin' || role === 'Super_Admin'
-  const storageKey = activeTenant ? `synq-custom-roles-${activeTenant}` : 'synq-custom-roles'
+  const storageKey = activeTenant ? `${APP_CONFIG.STORE_KEY_ROLES}-${activeTenant}` : APP_CONFIG.STORE_KEY_ROLES
   const customRoles = JSON.parse(localStorage.getItem(storageKey) || '[]')
 
   const [isAddOpen, setIsAddOpen] = useState(false)
@@ -99,8 +100,8 @@ export const UsersTable: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6 max-w-5xl">
-      <div className="flex items-center justify-between">
+    <div className="space-y-6 w-full">
+      <div className="flex items-center justify-between w-full mb-6">
         <div>
           <h2 className="text-lg font-semibold tracking-tight text-text-primary">Workspace Users</h2>
           <p className="text-sm text-text-muted">Manage active teammates, edit permissions, and track console login events.</p>
@@ -117,15 +118,15 @@ export const UsersTable: React.FC = () => {
       </div>
 
       {(successMessage || tempPassword) && (
-        <div className="p-4 bg-zinc-950 border border-zinc-900 rounded-xl space-y-3 max-w-3xl font-sans">
-          <div className="flex items-center gap-2 text-white text-xs">
-            <CheckCircle2 className="h-4 w-4 text-white" />
+        <div className="p-4 bg-white dark:bg-[#0F0F0F] border border-gray-200 dark:border-white/10 rounded-xl space-y-3 max-w-3xl font-sans">
+          <div className="flex items-center gap-2 text-gray-900 dark:text-white text-xs">
+            <CheckCircle2 className="h-4 w-4 text-emerald-500" />
             <span className="font-bold uppercase tracking-wide">Workspace Invitation Dispatched</span>
           </div>
-          <p className="text-xs text-zinc-400">{successMessage}</p>
+          <p className="text-xs text-gray-600 dark:text-gray-400">{successMessage}</p>
           {tempPassword && (
-            <div className="p-3 bg-black border border-zinc-800 rounded-lg text-xs font-mono text-white flex items-center justify-between">
-              <span>Temp Pass: <strong className="text-white select-all">{tempPassword}</strong></span>
+            <div className="p-3 bg-gray-50 dark:bg-[#1A1A1A] border border-gray-200 dark:border-white/10 rounded-lg text-xs font-mono text-gray-900 dark:text-white flex items-center justify-between">
+              <span>Temp Pass: <strong className="text-gray-900 dark:text-white select-all">{tempPassword}</strong></span>
             </div>
           )}
         </div>
@@ -171,7 +172,7 @@ export const UsersTable: React.FC = () => {
           </div>
         </div>
       ) : users.length === 0 ? (
-        <div className="bg-panel border border-border-primary rounded-xl p-16 text-center max-w-5xl mx-auto space-y-5">
+        <div className="bg-panel border border-border-primary rounded-xl p-16 text-center w-full space-y-5">
           <div className="flex justify-center">
             <div className="h-20 w-20 bg-panel-card border border-border-primary rounded-full flex items-center justify-center">
               <UserIcon className="h-10 w-10 text-text-muted" />

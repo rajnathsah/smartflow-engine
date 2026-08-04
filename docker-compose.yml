@@ -37,6 +37,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: synq_api
+    command: uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/backend
     ports:
       - "8000:8000"
     environment:
@@ -69,7 +70,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: synq_worker
-    command: celery -A backend.workers.celery_app.app worker --loglevel=info -Q celery,ai_task_queue
+    command: watchfiles "celery -A backend.workers.celery_app.app worker --loglevel=info -Q celery,ai_task_queue" /app/backend
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0

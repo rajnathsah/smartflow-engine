@@ -62,3 +62,9 @@ async def google_login(payload: GoogleLoginRequest, auth_service: AuthService = 
 async def list_users(claims: dict = Depends(get_current_user_claims), auth_service: AuthService = Depends(get_auth_service)):
     users = auth_service.get_workspace_users()
     return [UserRecordResponse(**u) for u in users]
+
+@router.post("/refresh", response_model=LoginResponse)
+async def refresh_token(claims: dict = Depends(get_current_user_claims), auth_service: AuthService = Depends(get_auth_service)):
+    result = auth_service.refresh_session_token(claims)
+    return LoginResponse.from_result(result)
+

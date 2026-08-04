@@ -30,17 +30,54 @@ class PipelineService:
         self.db = db
         self.tenant_id = tenant_id
 
+    def _redact_secrets(self, item: Dict[str, Any]) -> Dict[str, Any]:
+        redacted = {**item}
+        secret_fields = ["targetDbPassword", "sourceToken", "password", "authToken"]
+        for field in secret_fields:
+            if field in redacted and redacted[field]:
+                redacted[field] = "********"
+        return redacted
+
     def read_tenant_rows(self, table: str) -> List[Dict[str, Any]]:
         cls = _get_model_class(table)
         rows = self.db.query(cls).filter(cls.tenant_id == self.tenant_id).order_by(cls.created_at.desc()).all()
-        return [{**json.loads(row.data), "id": row.id} for row in rows]
+        result = []
+        for row in rows:
+            item = {**json.loads(row.data), "id": row.id}
+            item = self._redact_secrets(item)
+            if cls == Pipeline:
+                if hasattr(row, 'schema_mapping') and row.schema_mapping is not None:
+                    item["schema_mapping"] = row.schema_mapping
+                conn_row = self.db.query(Connection).filter(Connection.id == row.id).first()
+                if conn_row:
+                    conn_data = json.loads(conn_row.data)
+                    item["status"] = conn_data.get("status", "idle")
+                    item["recordsSynced"] = conn_data.get("recordsSynced", 0)
+                    item["taskId"] = conn_data.get("taskId")
+                    if "error" in conn_data:
+                        item["error"] = conn_data["error"]
+            result.append(item)
+        return result
 
     def read_tenant_row(self, table: str, item_id: str) -> Dict[str, Any]:
         cls = _get_model_class(table)
         row = self.db.query(cls).filter((cls.tenant_id == self.tenant_id) & (cls.id == item_id)).first()
         if not row:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found.")
-        return {**json.loads(row.data), "id": row.id}
+        item = {**json.loads(row.data), "id": row.id}
+        item = self._redact_secrets(item)
+        if cls == Pipeline:
+            if hasattr(row, 'schema_mapping') and row.schema_mapping is not None:
+                item["schema_mapping"] = row.schema_mapping
+            conn_row = self.db.query(Connection).filter(Connection.id == row.id).first()
+            if conn_row:
+                conn_data = json.loads(conn_row.data)
+                item["status"] = conn_data.get("status", "idle")
+                item["recordsSynced"] = conn_data.get("recordsSynced", 0)
+                item["taskId"] = conn_data.get("taskId")
+                if "error" in conn_data:
+                    item["error"] = conn_data["error"]
+        return item
 
     def upsert_tenant_row(self, table: str, item: Dict[str, Any]) -> Dict[str, Any]:
         cls = _get_model_class(table)
@@ -75,14 +112,32 @@ class PipelineService:
                     detail=f"Destination connection with ID '{dest_conn_id}' does not exist."
                 )
 
+        existing_data = {}
+        if existing and existing.data:
+            try:
+                existing_data = json.loads(existing.data)
+            except Exception:
+                pass
+
+        secret_fields = ["targetDbPassword", "sourceToken", "password", "authToken"]
+        for field in secret_fields:
+            if field in item:
+                val = item[field]
+                if (val is None or val == "" or val == "********") and existing_data.get(field):
+                    item[field] = existing_data[field]
+
         now = datetime.utcnow().isoformat()
         data = {**item, "id": item_id, "tenant_id": self.tenant_id}
+        schema_mapping_value = item.pop("schema_mapping", None)
+
         if existing:
             existing.data = json.dumps(data)
             existing.updated_at = now
             if cls == Pipeline:
                 existing.source_connection_id = item.get("source_connection_id")
                 existing.destination_connection_id = item.get("destination_connection_id")
+                if schema_mapping_value is not None:
+                    existing.schema_mapping = schema_mapping_value
         else:
             kwargs = {
                 "id": item_id,
@@ -94,10 +149,14 @@ class PipelineService:
             if cls == Pipeline:
                 kwargs["source_connection_id"] = item.get("source_connection_id")
                 kwargs["destination_connection_id"] = item.get("destination_connection_id")
+                kwargs["schema_mapping"] = schema_mapping_value
             new_row = cls(**kwargs)
             self.db.add(new_row)
         self.db.commit()
-        return data
+        response_data = self._redact_secrets({**data})
+        if cls == Pipeline and schema_mapping_value is not None:
+            response_data["schema_mapping"] = schema_mapping_value
+        return response_data
 
     def create_pipeline(self, item: Dict[str, Any]) -> Dict[str, Any]:
         return self.upsert_tenant_row("pipelines", item)
@@ -130,15 +189,35 @@ class PipelineService:
                     detail=f"Destination connection with ID '{dest_conn_id}' does not exist."
                 )
 
+        existing_data = {}
+        if row and row.data:
+            try:
+                existing_data = json.loads(row.data)
+            except Exception:
+                pass
+
+        secret_fields = ["targetDbPassword", "sourceToken", "password", "authToken"]
+        for field in secret_fields:
+            if field in item:
+                val = item[field]
+                if (val is None or val == "" or val == "********") and existing_data.get(field):
+                    item[field] = existing_data[field]
+
         now = datetime.utcnow().isoformat()
         data = {**item, "id": item_id, "tenant_id": self.tenant_id}
+        schema_mapping_value = item.pop("schema_mapping", None)
         row.data = json.dumps(data)
         row.updated_at = now
         if cls == Pipeline:
             row.source_connection_id = item.get("source_connection_id")
             row.destination_connection_id = item.get("destination_connection_id")
+            if schema_mapping_value is not None:
+                row.schema_mapping = schema_mapping_value
         self.db.commit()
-        return data
+        response_data = self._redact_secrets({**data})
+        if cls == Pipeline and schema_mapping_value is not None:
+            response_data["schema_mapping"] = schema_mapping_value
+        return response_data
 
     def delete_tenant_row(self, table: str, item_id: str) -> Dict[str, str]:
         cls = _get_model_class(table)
@@ -178,10 +257,17 @@ class PipelineService:
                         status_val = "completed"
                         result_data = res.result or {}
                         records_synced = int(result_data.get("records_synced", 0))
+                        error_msg = None
                     else:
                         status_val = "failed"
+                        records_synced = 0
+                        error_msg = str(res.result)
                     data["status"] = status_val
                     data["recordsSynced"] = records_synced
+                    if error_msg:
+                        data["error"] = error_msg
+                    else:
+                        data.pop("error", None)
                     now = datetime.utcnow().isoformat()
                     row.data = json.dumps(data)
                     row.updated_at = now
@@ -243,14 +329,20 @@ class PipelineService:
                 data["result"] = res.result
                 status_val = "completed"
                 records_synced = int((res.result or {}).get("records_synced", 0))
+                error_msg = None
             else:
                 data["error"] = str(res.result)
                 status_val = "failed"
                 records_synced = 0
+                error_msg = str(res.result)
             conn_data = json.loads(row.data)
             if conn_data.get("status") == "syncing":
                 conn_data["status"] = status_val
                 conn_data["recordsSynced"] = records_synced
+                if error_msg:
+                    conn_data["error"] = error_msg
+                else:
+                    conn_data.pop("error", None)
                 now = datetime.utcnow().isoformat()
                 row.data = json.dumps(conn_data)
                 row.updated_at = now
@@ -277,3 +369,29 @@ class PipelineService:
             "sourceKeys": ["user_id", "email", "created_at", "status_flag", "total_spent", "ip_address"],
             "targetColumns": ["id", "contact_email", "signup_date", "active_status", "lifetime_value", "signup_ip"]
         }
+
+    async def test_connection(self, connection_id: str) -> Dict[str, Any]:
+        """Test if a database/API connection is active using saved credentials."""
+        # Check connections, sources, or destinations
+        row = None
+        for table in ["connections", "sources", "destinations"]:
+            try:
+                cls = _get_model_class(table)
+                row = self.db.query(cls).filter((cls.tenant_id == self.tenant_id) & (cls.id == connection_id)).first()
+                if row:
+                    break
+            except Exception:
+                pass
+        
+        if not row:
+            raise HTTPException(status_code=404, detail="Connection not found.")
+        
+        try:
+            config = json.loads(row.data)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Malformed connection data.")
+        
+        from backend.utils.connection_tester import test_db_connection
+        return await test_db_connection(config)
+
+
