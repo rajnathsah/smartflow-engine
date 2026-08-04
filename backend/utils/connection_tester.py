@@ -9,6 +9,15 @@ from sqlalchemy.schema import CreateSchema
 from sqlalchemy.sql import quoted_name
 from typing import Dict, Any
 
+# Server-controlled outbound allowlist to prevent full SSRF.
+# Populate with approved integration hosts for this environment.
+ALLOWED_OUTBOUND_HOSTS = {
+    "api.example.com",
+}
+ALLOWED_OUTBOUND_DOMAIN_SUFFIXES = (
+    ".example.com",
+)
+
 def _is_public_ip(ip_str: str) -> bool:
     ip_obj = ipaddress.ip_address(ip_str)
     return not (
@@ -20,8 +29,17 @@ def _is_public_ip(ip_str: str) -> bool:
         or ip_obj.is_unspecified
     )
 
+def _is_allowed_outbound_host(host: str) -> bool:
+    normalized = host.lower()
+    if normalized in ALLOWED_OUTBOUND_HOSTS:
+        return True
+    return any(normalized.endswith(suffix) for suffix in ALLOWED_OUTBOUND_DOMAIN_SUFFIXES)
+
 def _validate_outbound_url(raw_url: str) -> str:
-    parsed = urlparse(raw_url)
+    if not isinstance(raw_url, str) or not raw_url.strip():
+        raise ValueError("URL must be a non-empty string.")
+
+    parsed = urlparse(raw_url.strip())
 
     if parsed.scheme not in ("http", "https"):
         raise ValueError("Only http/https URLs are allowed.")
@@ -31,13 +49,14 @@ def _validate_outbound_url(raw_url: str) -> str:
 
     host = parsed.hostname
 
+    if not _is_allowed_outbound_host(host):
+        raise ValueError("URL host is not in the outbound allowlist.")
+
+    # Validate resolved destination addresses.
     try:
-        # If host is an IP literal, validate it directly.
-        ipaddress.ip_address(host)
-        if not _is_public_ip(host):
-            raise ValueError("URL resolves to a non-public IP address.")
+        literal_ip = ipaddress.ip_address(host)
     except ValueError:
-        # Not an IP literal (or failed literal parse) - resolve DNS and validate all answers.
+        # Hostname case: resolve DNS and validate all answers are public.
         try:
             addr_info = socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == "https" else 80))
         except socket.gaierror:
@@ -50,8 +69,12 @@ def _validate_outbound_url(raw_url: str) -> str:
             resolved_ip = entry[4][0]
             if not _is_public_ip(resolved_ip):
                 raise ValueError("URL resolves to a non-public IP address.")
+    else:
+        # IP-literal case.
+        if not _is_public_ip(str(literal_ip)):
+            raise ValueError("URL resolves to a non-public IP address.")
 
-    return raw_url
+    return raw_url.strip()
 
 async def test_db_connection(config: Dict[str, Any]) -> Dict[str, Any]:
     """Attempts to connect to a REST API url or database using config parameters with a strict timeout."""
